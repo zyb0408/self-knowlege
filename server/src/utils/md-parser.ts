@@ -1,8 +1,48 @@
 import { marked } from 'marked';
 
+// Max text size for marked lexer parsing (500KB).
+// Above this limit, use raw text directly to prevent OOM.
+const MAX_PARSE_SIZE = 500 * 1024;
+
 export function parseMarkdown(md: string): string {
-  const tokens = marked.lexer(md);
-  return extractText(tokens, 0);
+  if (md.length > MAX_PARSE_SIZE) {
+    // For large files, skip the token-based parser and use raw text.
+    // Remove common markdown syntax minimally to keep the text usable.
+    return cleanRawMarkdown(md);
+  }
+
+  try {
+    const tokens = marked.lexer(md);
+    return extractText(tokens, 0);
+  } catch {
+    // If marked fails for any reason, fall back to raw text
+    return cleanRawMarkdown(md);
+  }
+}
+
+function cleanRawMarkdown(md: string): string {
+  return (
+    md
+      // Remove code fences but keep content
+      .replace(/^```[\s\S]*?```/gm, '')
+      // Remove image syntax
+      .replace(/!\[.*?\]\(.*?\)/g, '')
+      // Remove link syntax, keep text
+      .replace(/\[([^\]]*)\]\(.*?\)/g, '$1')
+      // Remove heading markers but keep the text
+      .replace(/^#{1,6}\s+/gm, '')
+      // Remove bold/italic markers
+      .replace(/\*{1,3}([^*]+)\*{1,3}/g, '$1')
+      // Remove horizontal rules
+      .replace(/^[-*_]{3,}\s*$/gm, '')
+      // Remove blockquote markers
+      .replace(/^>\s?/gm, '')
+      // Remove HTML tags
+      .replace(/<[^>]+>/g, '')
+      // Collapse multiple blank lines
+      .replace(/\n{3,}/g, '\n\n')
+      .trim()
+  );
 }
 
 function extractText(tokens: any[], depth: number): string {
@@ -55,7 +95,10 @@ function extractText(tokens: any[], depth: number): string {
       }
 
       case 'code':
-        // Skip code blocks
+        // Keep code content for embedding — useful information
+        if (token.text) {
+          parts.push('\n\n' + token.text);
+        }
         break;
 
       case 'image':

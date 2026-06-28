@@ -65,6 +65,15 @@ export interface GlobalConfig {
   default_system_prompt: string;
 }
 
+export interface EmbeddingTestResult {
+  ok: boolean;
+  model?: string;
+  dimensions?: number;
+  message?: string;
+  error?: string;
+  hint?: string;
+}
+
 export const api = {
   // Admin
   login: (password: string) => request('/admin/login', {
@@ -80,6 +89,10 @@ export const api = {
     request<GlobalConfig>('/config', {
       method: 'PUT',
       body: JSON.stringify(data),
+    }),
+  testEmbedding: () =>
+    request<EmbeddingTestResult>('/config/test-embedding', {
+      method: 'POST',
     }),
 
   // Knowledge Bases

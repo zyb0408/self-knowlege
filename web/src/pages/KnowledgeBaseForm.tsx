@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { api, GlobalConfig } from '@/lib/api';
 import {
   Save,
@@ -59,6 +59,50 @@ function makeDefaultForm(global?: GlobalConfig | null): FormValues {
     systemPrompt: global?.default_system_prompt || '',
   };
 }
+
+// Extracted outside component to keep stable references across renders
+const FieldLabel = memo(function FieldLabel({
+  label,
+  required,
+  hint,
+}: {
+  label: string;
+  required?: boolean;
+  hint?: string;
+}) {
+  return (
+    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+      {label}
+      {required && <span className="text-red-500 ml-0.5">*</span>}
+      {hint && <span className="text-gray-400 ml-1 text-xs">{hint}</span>}
+    </label>
+  );
+});
+
+const FormSection = memo(function FormSection({
+  title,
+  icon: Icon,
+  children,
+  action,
+}: {
+  title: string;
+  icon: React.ElementType;
+  children: React.ReactNode;
+  action?: React.ReactNode;
+}) {
+  return (
+    <div className="bg-gray-50 rounded-xl p-5 space-y-4">
+      <div className="flex items-center justify-between mb-1">
+        <div className="flex items-center gap-2">
+          <Icon className="w-4 h-4 text-indigo-500" />
+          <h3 className="font-medium text-gray-800">{title}</h3>
+        </div>
+        {action}
+      </div>
+      {children}
+    </div>
+  );
+});
 
 export default function KnowledgeBaseForm() {
   const [globalConfig, setGlobalConfig] = useState<GlobalConfig | null>(null);
@@ -224,44 +268,6 @@ export default function KnowledgeBaseForm() {
     setAttachedFiles((prev) => prev.filter((f) => f.name !== name));
   }, []);
 
-  const FieldLabel = ({
-    label,
-    required,
-    hint,
-  }: {
-    label: string;
-    required?: boolean;
-    hint?: string;
-  }) => (
-    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-      {label}
-      {required && <span className="text-red-500 ml-0.5">*</span>}
-      {hint && <span className="text-gray-400 ml-1 text-xs">{hint}</span>}
-    </label>
-  );
-
-  const Section = ({
-    title,
-    icon: Icon,
-    children,
-    action,
-  }: {
-    title: string;
-    icon: React.ElementType;
-    children: React.ReactNode;
-    action?: React.ReactNode;
-  }) => (
-    <div className="bg-gray-50 rounded-xl p-5 space-y-4">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-indigo-500" />
-          <h3 className="font-medium text-gray-800">{title}</h3>
-        </div>
-        {action}
-      </div>
-      {children}
-    </div>
-  );
 
   if (configLoading) {
     return (
@@ -295,7 +301,7 @@ export default function KnowledgeBaseForm() {
         </div>
 
         {/* LLM Config — 全局配置 */}
-        <Section
+        <FormSection
           title="LLM 配置（全局）"
           icon={Globe}
           action={
@@ -342,10 +348,10 @@ export default function KnowledgeBaseForm() {
               />
             </div>
           </div>
-        </Section>
+        </FormSection>
 
         {/* Embedding Config — 全局配置 */}
-        <Section
+        <FormSection
           title="Embedding 配置（全局）"
           icon={Brain}
           action={
@@ -392,10 +398,10 @@ export default function KnowledgeBaseForm() {
               />
             </div>
           </div>
-        </Section>
+        </FormSection>
 
         {/* Retrieval Config */}
-        <Section title="检索配置" icon={Search}>
+        <FormSection title="检索配置" icon={Search}>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <FieldLabel label="Top K" required />
@@ -433,10 +439,10 @@ export default function KnowledgeBaseForm() {
               <option value="l2">L2 (Euclidean)</option>
             </select>
           </div>
-        </Section>
+        </FormSection>
 
         {/* Chunking Config */}
-        <Section title="分块配置" icon={FileText}>
+        <FormSection title="分块配置" icon={FileText}>
           <div className="grid grid-cols-2 gap-4">
             <div>
               <FieldLabel label="Chunk Size" required />
@@ -459,7 +465,7 @@ export default function KnowledgeBaseForm() {
               />
             </div>
           </div>
-        </Section>
+        </FormSection>
 
         {/* System Prompt */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">

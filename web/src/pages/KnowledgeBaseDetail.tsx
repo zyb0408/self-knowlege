@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, KnowledgeBaseDetail as KBDetail } from '@/lib/api';
 import {
@@ -16,6 +16,30 @@ import {
   Search,
   FileText,
 } from 'lucide-react';
+
+// Extracted outside component for stable reference across renders
+const FieldLabel = memo(function FieldLabel({
+  label,
+  hint,
+}: {
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <label className="block text-sm font-medium text-gray-700 mb-1.5">
+      {label}
+      {hint && <span className="text-gray-400 ml-1 text-xs">{hint}</span>}
+    </label>
+  );
+});
+
+const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
+  pending: { label: '待上传', color: 'bg-gray-100 text-gray-600', icon: File },
+  indexing: { label: '索引中', color: 'bg-yellow-100 text-yellow-600', icon: Loader2 },
+  done: { label: '已完成', color: 'bg-green-100 text-green-600', icon: CheckCircle },
+  error: { label: '失败', color: 'bg-red-100 text-red-600', icon: XCircle },
+  skipped: { label: '已跳过', color: 'bg-gray-100 text-gray-500', icon: XCircle },
+};
 
 export default function KnowledgeBaseDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -166,27 +190,6 @@ export default function KnowledgeBaseDetailPage() {
       setError((err as Error).message);
     }
   }, [id, kb, navigate]);
-
-  const FieldLabel = ({
-    label,
-    hint,
-  }: {
-    label: string;
-    hint?: string;
-  }) => (
-    <label className="block text-sm font-medium text-gray-700 mb-1.5">
-      {label}
-      {hint && <span className="text-gray-400 ml-1 text-xs">{hint}</span>}
-    </label>
-  );
-
-  const statusConfig: Record<string, { label: string; color: string; icon: React.ElementType }> = {
-    pending: { label: '待上传', color: 'bg-gray-100 text-gray-600', icon: File },
-    indexing: { label: '索引中', color: 'bg-yellow-100 text-yellow-600', icon: Loader2 },
-    done: { label: '已完成', color: 'bg-green-100 text-green-600', icon: CheckCircle },
-    error: { label: '失败', color: 'bg-red-100 text-red-600', icon: XCircle },
-    skipped: { label: '已跳过', color: 'bg-gray-100 text-gray-500', icon: XCircle },
-  };
 
   if (loading) {
     return (

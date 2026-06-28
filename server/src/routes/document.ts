@@ -1,7 +1,7 @@
 import { Router, Request, Response } from 'express';
 import multer from 'multer';
 import { v4 as uuidv4 } from 'uuid';
-import { getDb } from '../db';
+import { getDb, getGlobalSettings } from '../db';
 import { ChromaVectorStore } from '../vectorstore/chroma';
 import { OpenAICompatibleLLM } from '../llm/openai-compatible';
 import { parseMarkdown } from '../utils/md-parser';
@@ -68,21 +68,11 @@ router.post(
 
     const db = getDb();
     const kb = db
-      .prepare('SELECT * FROM knowledge_bases WHERE id = ?')
+      .prepare('SELECT chunk_size, chunk_overlap FROM knowledge_bases WHERE id = ?')
       .get(kbId) as
       | {
-          llm_base_url: string;
-          llm_api_key: string;
-          llm_model: string;
-          embedding_base_url: string;
-          embedding_api_key: string;
-          embedding_model: string;
-          top_k: number;
-          similarity_threshold: number;
-          distance_metric: string;
           chunk_size: number;
           chunk_overlap: number;
-          system_prompt: string;
         }
       | undefined;
 
@@ -90,6 +80,8 @@ router.post(
       res.status(404).json({ error: '知识库不存在' });
       return;
     }
+
+    const globalSettings = getGlobalSettings();
 
     // Check for duplicate filenames
     const existingRows = db
@@ -106,9 +98,9 @@ router.post(
 
     const store = new ChromaVectorStore();
     const llm = new OpenAICompatibleLLM({
-      baseUrl: kb.embedding_base_url,
-      apiKey: kb.embedding_api_key,
-      model: kb.embedding_model,
+      baseUrl: globalSettings.embedding_base_url,
+      apiKey: globalSettings.embedding_api_key,
+      model: globalSettings.embedding_model,
     });
 
     // Process files sequentially

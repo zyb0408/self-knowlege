@@ -5,6 +5,7 @@ import { useLocalStorage } from '@/hooks/use-local-storage';
 import UserChatPage from '@/pages/UserChatPage';
 import AdminLoginPage from '@/pages/AdminLoginPage';
 import AdminDashboard from '@/pages/AdminDashboard';
+import KnowledgeBaseDetailPage from '@/pages/KnowledgeBaseDetail';
 
 export default function App() {
   const [history] = useLocalStorage<any[]>('chat-history', []);
@@ -17,6 +18,7 @@ export default function App() {
             <Route path="/" element={<UserChatPage />} />
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
+            <Route path="/admin/knowledge-base/:id" element={<KnowledgeBaseDetailPage />} />
           </Routes>
         </BrowserRouter>
       </ChatProvider>

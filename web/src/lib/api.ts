@@ -22,6 +22,49 @@ async function request<T>(
   return response.json();
 }
 
+export interface KnowledgeBase {
+  id: string;
+  name: string;
+  created_at: number;
+  top_k: number;
+  similarity_threshold: number;
+  distance_metric: string;
+  chunk_size: number;
+  chunk_overlap: number;
+  system_prompt: string;
+  documentCount: number;
+  totalChunks: number;
+}
+
+export interface KnowledgeBaseDetail extends KnowledgeBase {
+  llm_base_url: string;
+  llm_api_key: string;
+  llm_model: string;
+  embedding_base_url: string;
+  embedding_api_key: string;
+  embedding_model: string;
+  documents: DocumentItem[];
+}
+
+export interface DocumentItem {
+  id: string;
+  filename: string;
+  status: string;
+  chunk_count: number;
+  indexed_at: number | null;
+  error: string | null;
+}
+
+export interface GlobalConfig {
+  llm_base_url: string;
+  llm_api_key: string;
+  llm_model: string;
+  embedding_base_url: string;
+  embedding_api_key: string;
+  embedding_model: string;
+  default_system_prompt: string;
+}
+
 export const api = {
   // Admin
   login: (password: string) => request('/admin/login', {
@@ -31,21 +74,61 @@ export const api = {
   logout: () => request('/admin/logout', { method: 'POST' }),
   checkSession: () => request('/admin/session'),
 
+  // Global Config
+  getGlobalConfig: () => request<GlobalConfig>('/config'),
+  updateGlobalConfig: (data: Partial<GlobalConfig>) =>
+    request<GlobalConfig>('/config', {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+
   // Knowledge Bases
-  getKnowledgeBases: () => request('/knowledge-bases'),
-  getKnowledgeBase: (id: string) => request(`/knowledge-bases/${id}`),
-  createKnowledgeBase: (data: any) => request('/knowledge-bases', {
-    method: 'POST',
-    body: JSON.stringify(data),
-  }),
-  updateKnowledgeBase: (id: string, data: any) => request(`/knowledge-bases/${id}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  }),
-  deleteKnowledgeBase: (id: string) => request(`/knowledge-bases/${id}`, {
-    method: 'DELETE',
-  }),
-  getDocuments: (kbId: string) => request(`/knowledge-bases/${kbId}/documents`),
+  getKnowledgeBases: () => request<KnowledgeBase[]>('/knowledge-bases'),
+  getKnowledgeBase: (id: string) =>
+    request<KnowledgeBaseDetail>(`/knowledge-bases/${id}`),
+  createKnowledgeBase: (data: Record<string, unknown>) =>
+    request<{ id: string; name: string; created_at: number; files?: Array<{ filename: string; status: string; chunk_count: number; error: string | null }> }>('/knowledge-bases', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+  createKnowledgeBaseWithFiles: (
+    data: Record<string, string | number>,
+    files: File[],
+  ) => {
+    const formData = new FormData();
+    for (const [key, value] of Object.entries(data)) {
+      formData.append(key, String(value));
+    }
+    files.forEach((f) => formData.append('files', f));
+    return fetch(`${API_BASE}/knowledge-bases`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    }).then((r) => {
+      if (!r.ok) {
+        return r.json().then((err) => {
+          throw new Error(err.error || '创建失败');
+        });
+      }
+      return r.json();
+    });
+  },
+  updateKnowledgeBase: (id: string, data: Record<string, unknown>) =>
+    request<KnowledgeBaseDetail>(`/knowledge-bases/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data),
+    }),
+  deleteKnowledgeBase: (id: string) =>
+    request(`/knowledge-bases/${id}`, { method: 'DELETE' }),
+  reindexKnowledgeBase: (id: string) =>
+    request<{ success: boolean; results: Array<{ filename: string; status: string; chunk_count: number; error: string | null }> }>(
+      `/knowledge-bases/${id}/reindex`,
+      { method: 'POST' },
+    ),
+
+  // Documents
+  getDocuments: (kbId: string) =>
+    request<DocumentItem[]>(`/knowledge-bases/${kbId}/documents`),
   uploadDocuments: (kbId: string, files: File[]) => {
     const formData = new FormData();
     files.forEach((f) => formData.append('files', f));
@@ -53,7 +136,14 @@ export const api = {
       method: 'POST',
       credentials: 'include',
       body: formData,
-    }).then((r) => r.json());
+    }).then((r) => {
+      if (!r.ok) {
+        return r.json().then((err) => {
+          throw new Error(err.error || '上传失败');
+        });
+      }
+      return r.json();
+    });
   },
   deleteDocument: (kbId: string, docId: string) =>
     request(`/knowledge-bases/${kbId}/documents/${docId}`, {

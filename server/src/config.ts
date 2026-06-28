@@ -14,7 +14,17 @@ export const config = {
   // SQLite
   dbPath: process.env.DB_PATH || resolve(__dirname, '..', 'data', 'knolege.db'),
 
-  // Global default LLM (for direct chat without KB)
+  // Global default LLM config (shared across all knowledge bases)
+  defaultLlmBaseUrl: process.env.DEFAULT_LLM_BASE_URL || 'http://localhost:8000/v1',
+  defaultLlmApiKey: process.env.DEFAULT_LLM_API_KEY || '',
+  defaultLlmModel: process.env.DEFAULT_LLM_MODEL || 'gpt-3.5-turbo',
+
+  // Global default Embedding config (shared across all knowledge bases)
+  defaultEmbeddingBaseUrl: process.env.DEFAULT_EMBEDDING_BASE_URL || process.env.DEFAULT_LLM_BASE_URL || 'http://localhost:8000/v1',
+  defaultEmbeddingApiKey: process.env.DEFAULT_EMBEDDING_API_KEY || process.env.DEFAULT_LLM_API_KEY || '',
+  defaultEmbeddingModel: process.env.DEFAULT_EMBEDDING_MODEL || 'text-embedding-ada-002',
+
+  // Global default system prompt
   defaultSystemPrompt: process.env.DEFAULT_SYSTEM_PROMPT ||
     '你是知识库问答助手。请基于提供的文档内容回答用户问题。如果提供的信息不足以回答问题，请明确说明。',
 

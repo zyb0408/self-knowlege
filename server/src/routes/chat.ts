@@ -1,15 +1,11 @@
 import { Router, Request, Response } from 'express';
-import { getDb } from '../db';
+import { getDb, getGlobalSettings } from '../db';
 import { ChromaVectorStore } from '../vectorstore/chroma';
 import { OpenAICompatibleLLM } from '../llm/openai-compatible';
-import { getDefaultSystemPrompt } from '../middleware/admin-auth';
 
 const router = Router();
 
 interface KBRow {
-  llm_base_url: string;
-  llm_api_key: string;
-  llm_model: string;
   top_k: number;
   similarity_threshold: number;
   distance_metric: string;
@@ -25,14 +21,16 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
     return;
   }
 
-  // Build system prompt and get KB config if needed
-  let systemPrompt = getDefaultSystemPrompt();
+  const globalSettings = getGlobalSettings();
+
+  // Build system prompt and get KB retrieval config if needed
+  let systemPrompt = globalSettings.default_system_prompt;
   let kbConfig: KBRow | null = null;
 
   if (kbId) {
     const db = getDb();
     const kbRow = db
-      .prepare('SELECT * FROM knowledge_bases WHERE id = ?')
+      .prepare('SELECT top_k, similarity_threshold, distance_metric, system_prompt FROM knowledge_bases WHERE id = ?')
       .get(kbId) as KBRow | undefined;
 
     if (!kbRow) {
@@ -41,13 +39,7 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
     }
 
     kbConfig = kbRow;
-
-    if (!kbConfig) {
-      res.status(404).json({ error: '知识库不存在' });
-      return;
-    }
-
-    systemPrompt = kbConfig.system_prompt || getDefaultSystemPrompt();
+    systemPrompt = kbConfig.system_prompt || globalSettings.default_system_prompt;
   }
 
   // Build user prompt with retrieval context
@@ -80,7 +72,6 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
       }
     }
 
-    // Build context prompt
     const contextText = results
       .map(
         (r: any, i: number) =>
@@ -105,30 +96,18 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
   ];
 
   if (history && Array.isArray(history)) {
-    // Take last 10 rounds (20 messages)
     const recentHistory = history.slice(-20);
     messages.push(...recentHistory);
   }
 
-  // Add current user message
   messages.push({ role: 'user', content: userPrompt });
 
-  // Get LLM adapter
-  let llm: OpenAICompatibleLLM;
-  if (kbConfig) {
-    llm = new OpenAICompatibleLLM({
-      baseUrl: kbConfig.llm_base_url,
-      apiKey: kbConfig.llm_api_key,
-      model: kbConfig.llm_model,
-    });
-  } else {
-    // Use default LLM config from env
-    llm = new OpenAICompatibleLLM({
-      baseUrl: process.env.DEFAULT_LLM_BASE_URL || 'http://localhost:8000/v1',
-      apiKey: process.env.DEFAULT_LLM_API_KEY || '',
-      model: process.env.DEFAULT_LLM_MODEL || 'gpt-3.5-turbo',
-    });
-  }
+  // Use global LLM config for all chat
+  const llm = new OpenAICompatibleLLM({
+    baseUrl: globalSettings.llm_base_url,
+    apiKey: globalSettings.llm_api_key,
+    model: globalSettings.llm_model,
+  });
 
   // Set SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
@@ -168,7 +147,7 @@ router.post('/retrieval/debug', async (req: Request, res: Response): Promise<voi
 
   const db = getDb();
   const kb = db
-    .prepare('SELECT * FROM knowledge_bases WHERE id = ?')
+    .prepare('SELECT top_k, similarity_threshold, distance_metric FROM knowledge_bases WHERE id = ?')
     .get(kbId) as KBRow | undefined;
 
   if (!kb) {

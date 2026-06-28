@@ -5,6 +5,7 @@ import session from 'express-session';
 
 import { config } from './config';
 import adminRoutes from './routes/admin';
+import configRoutes from './routes/config';
 import knowledgebaseRoutes from './routes/knowledgebase';
 import documentRoutes from './routes/document';
 import chatRoutes from './routes/chat';
@@ -27,6 +28,7 @@ app.use(
 
 // Routes
 app.use('/api/admin', adminRoutes);
+app.use('/api/config', configRoutes);
 app.use('/api/knowledge-bases', knowledgebaseRoutes);
 app.use('/api/knowledge-bases', documentRoutes);
 app.use('/api/chat', chatRoutes);

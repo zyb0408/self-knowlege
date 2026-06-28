@@ -1,6 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAdmin } from '@/context/admin-context';
-import { api } from '@/lib/api';
+import { api, KnowledgeBase } from '@/lib/api';
 import KnowledgeBaseForm from './KnowledgeBaseForm';
 import RetrievalDebugger from './RetrievalDebugger';
 import {
@@ -9,22 +10,15 @@ import {
   Plus,
   Search,
   Database,
-  Users,
   BarChart3,
+  ChevronRight,
 } from 'lucide-react';
 
 type TabId = 'list' | 'create' | 'debug';
 
-interface KnowledgeBase {
-  id: string;
-  name: string;
-  documentCount: number;
-  vectorCount: number;
-  createdAt: string;
-}
-
 export default function AdminDashboard() {
   const { logout } = useAdmin();
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>('list');
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -32,13 +26,17 @@ export default function AdminDashboard() {
   const fetchKbs = useCallback(async () => {
     try {
       const data = await api.getKnowledgeBases();
-      setKbs(data as KnowledgeBase[]);
+      setKbs(data);
     } catch {
       // Ignore
     } finally {
       setLoading(false);
     }
   }, []);
+
+  useEffect(() => {
+    fetchKbs();
+  }, [fetchKbs]);
 
   const handleTabChange = useCallback(
     (tab: TabId) => {
@@ -112,6 +110,7 @@ export default function AdminDashboard() {
               kbs={kbs}
               loading={loading}
               onRefresh={fetchKbs}
+              onSelect={(id) => navigate(`/admin/knowledge-base/${id}`)}
             />
           )}
           {activeTab === 'create' && <KnowledgeBaseForm />}
@@ -126,10 +125,12 @@ function KnowledgeBaseListView({
   kbs,
   loading,
   onRefresh,
+  onSelect,
 }: {
   kbs: KnowledgeBase[];
   loading: boolean;
   onRefresh: () => void;
+  onSelect: (id: string) => void;
 }) {
   return (
     <div>
@@ -160,23 +161,29 @@ function KnowledgeBaseListView({
           {kbs.map((kb) => (
             <div
               key={kb.id}
-              className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md transition-shadow"
+              onClick={() => onSelect(kb.id)}
+              className="bg-white rounded-xl border border-gray-200 p-5 hover:shadow-md hover:border-indigo-200 transition-all cursor-pointer group"
             >
               <div className="flex items-start justify-between">
                 <div className="flex-1">
-                  <h3 className="font-medium text-gray-800">{kb.name}</h3>
+                  <div className="flex items-center gap-2">
+                    <h3 className="font-medium text-gray-800 group-hover:text-indigo-700 transition-colors">
+                      {kb.name}
+                    </h3>
+                    <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-indigo-400 transition-colors" />
+                  </div>
                   <div className="flex items-center gap-4 mt-2 text-sm text-gray-500">
                     <span className="flex items-center gap-1">
                       <BookOpen className="w-3.5 h-3.5" />
                       {kb.documentCount} 文档
                     </span>
                     <span className="flex items-center gap-1">
-                      <Users className="w-3.5 h-3.5" />
-                      {kb.vectorCount} 向量
+                      <Database className="w-3.5 h-3.5" />
+                      {kb.totalChunks} 分块
                     </span>
                     <span className="flex items-center gap-1">
                       <BarChart3 className="w-3.5 h-3.5" />
-                      创建于 {kb.createdAt}
+                      {new Date(kb.created_at).toLocaleDateString('zh-CN')}
                     </span>
                   </div>
                 </div>

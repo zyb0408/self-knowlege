@@ -172,7 +172,10 @@ npm run dev:web      # 前端 http://localhost:5173
 |------|------|------|
 | GET | `/api/config` | 获取全局配置 |
 | PUT | `/api/config` | 更新全局配置 |
+| POST | `/api/config/test-llm` | 测试 LLM 服务连接 |
+| POST | `/api/config/models` | 获取 LLM 可用模型列表 |
 | POST | `/api/config/test-embedding` | 测试 Embedding 服务连接 |
+| POST | `/api/config/embedding-models` | 获取 Embedding 可用模型列表 |
 
 ### 知识库
 | 方法 | 路径 | 说明 |
@@ -197,23 +200,92 @@ npm run dev:web      # 前端 http://localhost:5173
 | POST | `/api/chat/stream` | 流式对话（SSE）|
 | POST | `/api/chat/retrieval/debug` | 检索调试 |
 
+## API 逻辑说明
+
+### 管理员认证
+
+- **POST `/api/admin/login`** — 接收密码，与 `.env` 中 `ADMIN_PASSWORD` 比对，成功后生成 UUID token 存入 `admin_sessions` 表，设置 `session` Cookie（httpOnly，路径 `/api`，有效期 24 小时）
+- **POST `/api/admin/logout`** — 清除 `session` Cookie
+- **GET `/api/admin/session`** — 从 Cookie 中解析 token，查询 `admin_sessions` 表验证是否有效且未过期
+
+### 全局配置
+
+- **GET `/api/config`** — 从 SQLite `settings` 表读取全局配置（LLM Base URL / API Key / Model、Embedding Base URL / API Key / Model、Default System Prompt），首次启动时自动从 `.env` 种子化
+- **PUT `/api/config`** — 部分更新 `settings` 表，使用 `INSERT OR REPLACE`
+- **POST `/api/config/test-llm`** — 使用全局 LLM 配置构造 `OpenAICompatibleLLM` 客户端，调用 `/models` 端点验证服务可达性，返回连接状态、模型数量和可用性
+- **POST `/api/config/models`** — 调用 LLM 服务的 `GET /models` 端点，解析 OpenAI 标准响应格式 `{ data: [{ id: "model-name" }] }`，返回模型 ID 列表
+- **POST `/api/config/test-embedding`** — 使用全局 Embedding 配置构造客户端，发送 `['test connection']` 测试文本调用 `/embeddings` 端点，验证服务可达并返回向量维度；失败时根据错误类型给出修复建议（如 "请添加 --embeddings 参数"）
+- **POST `/api/config/embedding-models`** — 调用 Embedding 服务的 `/models` 端点获取可用模型列表
+
+### 知识库管理
+
+- **GET `/api/knowledge-bases`** — 查询 `knowledge_bases` 表，关联 `documents` 表统计文档数量和分块总数
+- **GET `/api/knowledge-bases/:id`** — 单条查询 + 关联文档列表
+- **POST `/api/knowledge-bases`** — 创建知识库记录（LLM/Embedding 配置从全局 settings 读取），自动创建 ChromaDB Collection；如果附带文件，则执行文档索引流程（解析 → 分块 → Embedding → 存 ChromaDB，每 20 个 chunk 一批处理防止 OOM）
+- **PUT `/api/knowledge-bases/:id`** — 使用 `COALESCE(?, field)` 实现部分更新，仅更新非空字段；LLM/Embedding 字段同步全局配置
+- **DELETE `/api/knowledge-bases/:id`** — 删除 ChromaDB Collection（容错），然后级联删除文档和知识库记录
+- **POST `/api/knowledge-bases/:id/reindex`** — 删除并重建 ChromaDB Collection，所有文档标记为 `pending`（需重新上传文件完成索引，因为不存储原始文件）
+
+### 文档管理
+
+- **GET `/api/knowledge-bases/:kbId/documents`** — 按 `indexed_at DESC` 排序返回文档列表
+- **POST `/api/knowledge-bases/:kbId/documents`** — multer 内存存储接收 `.md` 文件（最大 10MB，最多 50 个），逐个文件处理：
+  1. 创建文档记录（状态 `indexing`）
+  2. 解析 Markdown：≤500KB 使用 marked lexer 提取纯文本，>500KB 使用轻量级正则清洗避免 OOM
+  3. 按知识库的分块参数切分（最大 2000 个 chunk）
+  4. 每 20 个 chunk 一批调用 Embedding API，存 ChromaDB，释放内存
+  5. 全部完成后更新文档状态为 `done`，失败则记录错误信息
+- **DELETE `/api/knowledge-bases/:kbId/documents/:docId`** — 删除文档记录（ChromaDB 中的数据保留，通过 reindex 清理）
+
+### 对话
+
+- **POST `/api/chat/stream`** — SSE 流式对话：
+  1. 如果指定了知识库，查询其检索和 System Prompt 配置
+  2. 使用全局 LLM 配置构造客户端
+  3. 将用户问题发送到 Embedding API 生成查询向量
+  4. 在 ChromaDB 中检索 Top-K 相关文档块
+  5. 拼接上下文（文档块 + 上轮回答）到用户 prompt
+  6. 调用 LLM Chat Completions API（stream=true），逐 chunk 推送到前端
+- **POST `/api/chat/retrieval/debug`** — 返回检索到的文档块及相似度分数，用于调试检索效果
+
 ## 数据流
 
 ```
 用户上传 .md 文件
-   → Markdown 解析（marked 库去除语法标记）
-   → 文本分块（按标题 + 定长，支持重叠）
-   → Embedding API 生成向量
-   → 存储到 ChromaDB
+   → Markdown 解析（≤500KB 用 marked lexer，>500KB 用正则清洗）
+   → 文本分块（按标题 + 定长，支持重叠，最大 2000 块）
+   → 每 20 块一批 → Embedding API 生成向量 → 存 ChromaDB
 
 用户提问
    → 查询文本 → Embedding → ChromaDB 检索 Top-K 相关块
    → 拼接上下文 → LLM 生成回答（流式 SSE）
 ```
 
+## 全局配置页交互
+
+全局配置页面（`/admin/dashboard` → 全局配置）提供以下交互：
+
+| 功能 | 说明 |
+|------|------|
+| **测试连接** | 调用对应服务的 `/models` 或 `/embeddings` 端点验证连通性。绿色 `已连接` 徽章表示成功，红色 `连接失败` 徽章表示失败并显示详细错误和修复建议 |
+| **获取模型** | 从服务端拉取可用模型列表。获取成功后 Model 字段从文本框切换为下拉选择器，可直接选择模型 |
+| **保存** | 独立保存 LLM / Embedding / System Prompt 配置到 `settings` 表 |
+
+## 创建知识库页交互
+
+创建知识库页面（`/admin/dashboard` → 创建知识库）提供以下交互：
+
+| 功能 | 说明 |
+|------|------|
+| **Embedding 状态检测** | 页面加载时自动检测 Embedding 服务连通性。可用时显示绿色确认，不可用时显示黄色警告和修复建议 |
+| **参数配置** | 分块大小（100-2000）、重叠大小（0-500）、Top K（1-20）、相似度阈值（0-1）、距离度量（Cosine/L2）|
+| **文件上传** | 仅 Embedding 可用时开放上传区；不可用时显示警告提示先修复配置 |
+| **创建提交** | 同时保存全局配置并创建知识库，文件随表单一并提交并索引 |
+
 ## 架构说明
 
-- **全局配置**：LLM 和 Embedding 的连接信息全局共享，所有知识库使用同一套配置
+- **全局配置**：LLM 和 Embedding 的连接信息全局共享，所有知识库使用同一套配置。存储在 SQLite `settings` 表，支持运行时修改
 - **知识库独立配置**：每个知识库有独立的检索参数（Top K、相似度阈值、距离度量）、分块参数（块大小、重叠大小）和 System Prompt
-- **会话管理**：管理后台使用 Cookie + SQLite Session 认证
-- **向量存储**：每个知识库对应 ChromaDB 中的一个 Collection
+- **会话管理**：管理后台使用 Cookie + SQLite `admin_sessions` 表认证，Session 有效期 24 小时
+- **向量存储**：每个知识库对应 ChromaDB 中的一个 Collection，名称格式为 `kb_<uuid>`
+- **OOM 防护**：Markdown 解析大文件自动降级为轻量级正则清洗；Embedding 分批处理（每批 20 个 chunk）；单个文件最多处理 2000 个 chunk

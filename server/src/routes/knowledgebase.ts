@@ -181,6 +181,7 @@ router.post(
 
         for (const file of files) {
           const filename = file.originalname;
+          let firstEmbedError = '';
           try {
             const docId = uuidv4();
             db.prepare(
@@ -223,13 +224,27 @@ router.post(
                     },
                   });
                 }
-              } catch {
+              } catch (embedErr) {
+                if (!firstEmbedError) {
+                  firstEmbedError = (embedErr as Error).message;
+                }
                 continue;
               }
             }
 
             if (vectorChunks.length > 0) {
               await store.addChunks(id, vectorChunks);
+            } else if (firstEmbedError) {
+              db.prepare(
+                'UPDATE documents SET status = ?, error = ? WHERE id = ?',
+              ).run('error', `Embedding 失败: ${firstEmbedError}`, docId);
+              fileResults.push({
+                filename,
+                status: 'error',
+                chunk_count: 0,
+                error: `Embedding 失败: ${firstEmbedError}`,
+              });
+              continue;
             }
 
             db.prepare(

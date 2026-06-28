@@ -154,6 +154,7 @@ router.post(
 
           // Step 3: Embed each chunk
           const vectorChunks: Array<{ id: string; text: string; metadata: any }> = [];
+          let firstEmbedError = '';
 
           for (let i = 0; i < chunks.length; i++) {
             try {
@@ -169,8 +170,10 @@ router.post(
                   },
                 });
               }
-            } catch {
-              // Skip failed embeddings
+            } catch (embedErr) {
+              if (!firstEmbedError) {
+                firstEmbedError = (embedErr as Error).message;
+              }
               continue;
             }
           }
@@ -178,6 +181,18 @@ router.post(
           // Step 4: Store in ChromaDB
           if (vectorChunks.length > 0) {
             await store.addChunks(kbId, vectorChunks);
+          } else if (firstEmbedError) {
+            // All embeddings failed — report the actual error
+            db.prepare(
+              'UPDATE documents SET status = ?, error = ? WHERE id = ?',
+            ).run('error', `Embedding 失败: ${firstEmbedError}`, docId);
+            results.push({
+              filename,
+              status: 'error',
+              chunk_count: 0,
+              error: `Embedding 失败: ${firstEmbedError}`,
+            });
+            continue;
           }
 
           // Update document record

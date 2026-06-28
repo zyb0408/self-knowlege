@@ -4,6 +4,7 @@ import { useAdmin } from '@/context/admin-context';
 import { api, KnowledgeBase } from '@/lib/api';
 import KnowledgeBaseForm from './KnowledgeBaseForm';
 import RetrievalDebugger from './RetrievalDebugger';
+import GlobalSettingsPage from './GlobalSettingsPage';
 import {
   LogOut,
   BookOpen,
@@ -12,9 +13,10 @@ import {
   Database,
   BarChart3,
   ChevronRight,
+  Settings,
 } from 'lucide-react';
 
-type TabId = 'list' | 'create' | 'debug';
+type TabId = 'list' | 'create' | 'debug' | 'settings';
 
 export default function AdminDashboard() {
   const { authenticated, loading: authLoading, logout } = useAdmin();
@@ -64,6 +66,7 @@ export default function AdminDashboard() {
     { id: 'list' as TabId, label: '知识库列表', icon: Database },
     { id: 'create' as TabId, label: '创建知识库', icon: Plus },
     { id: 'debug' as TabId, label: '检索调试', icon: Search },
+    { id: 'settings' as TabId, label: '全局配置', icon: Settings },
   ];
 
   return (
@@ -123,6 +126,7 @@ export default function AdminDashboard() {
           )}
           {activeTab === 'create' && <KnowledgeBaseForm />}
           {activeTab === 'debug' && <RetrievalDebugger />}
+          {activeTab === 'settings' && <GlobalSettingsPage />}
         </div>
       </main>
     </div>

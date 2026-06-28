@@ -2,30 +2,18 @@ import { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { api, GlobalConfig } from '@/lib/api';
 import {
   Save,
-  Globe,
-  Brain,
   Search,
   FileText,
   X,
   AlertCircle,
   Upload,
   File,
-  RefreshCw,
   Loader2,
+  Settings,
 } from 'lucide-react';
 
 interface FormValues {
   name: string;
-  llm: {
-    baseUrl: string;
-    apiKey: string;
-    model: string;
-  };
-  embedding: {
-    baseUrl: string;
-    apiKey: string;
-    model: string;
-  };
   retrieval: {
     topK: number;
     similarityThreshold: number;
@@ -41,22 +29,12 @@ interface FormValues {
 const defaultRetrieval = { topK: 5, similarityThreshold: 0.7, distanceMetric: 'cosine' as const };
 const defaultChunking = { chunkSize: 500, chunkOverlap: 50 };
 
-function makeDefaultForm(global?: GlobalConfig | null): FormValues {
+function makeDefaultForm(defaultSystemPrompt?: string): FormValues {
   return {
     name: '',
-    llm: {
-      baseUrl: global?.llm_base_url || '',
-      apiKey: global?.llm_api_key || '',
-      model: global?.llm_model || '',
-    },
-    embedding: {
-      baseUrl: global?.embedding_base_url || '',
-      apiKey: global?.embedding_api_key || '',
-      model: global?.embedding_model || '',
-    },
     retrieval: { ...defaultRetrieval },
     chunking: { ...defaultChunking },
-    systemPrompt: global?.default_system_prompt || '',
+    systemPrompt: defaultSystemPrompt || '',
   };
 }
 
@@ -83,21 +61,16 @@ const FormSection = memo(function FormSection({
   title,
   icon: Icon,
   children,
-  action,
 }: {
   title: string;
   icon: React.ElementType;
   children: React.ReactNode;
-  action?: React.ReactNode;
 }) {
   return (
     <div className="bg-gray-50 rounded-xl p-5 space-y-4">
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-indigo-500" />
-          <h3 className="font-medium text-gray-800">{title}</h3>
-        </div>
-        {action}
+      <div className="flex items-center gap-2 mb-1">
+        <Icon className="w-4 h-4 text-indigo-500" />
+        <h3 className="font-medium text-gray-800">{title}</h3>
       </div>
       {children}
     </div>
@@ -105,7 +78,7 @@ const FormSection = memo(function FormSection({
 });
 
 export default function KnowledgeBaseForm() {
-  const [globalConfig, setGlobalConfig] = useState<GlobalConfig | null>(null);
+  const [defaultSystemPrompt, setDefaultSystemPrompt] = useState('');
   const [configLoading, setConfigLoading] = useState(true);
   const [form, setForm] = useState<FormValues>(makeDefaultForm());
   const [saving, setSaving] = useState(false);
@@ -113,19 +86,21 @@ export default function KnowledgeBaseForm() {
   const [error, setError] = useState<string | null>(null);
   const [showErrorModal, setShowErrorModal] = useState(false);
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
-  const [savingGlobal, setSavingGlobal] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load global config on mount
+  // Load default system prompt from global config
   useEffect(() => {
     api
       .getGlobalConfig()
-      .then((cfg) => {
-        setGlobalConfig(cfg);
-        setForm(makeDefaultForm(cfg));
+      .then((cfg: GlobalConfig) => {
+        setDefaultSystemPrompt(cfg.default_system_prompt || '');
+        setForm((prev) => ({
+          ...prev,
+          systemPrompt: cfg.default_system_prompt || '',
+        }));
       })
       .catch(() => {
-        // Use empty defaults if config load fails
+        // Use empty defaults
       })
       .finally(() => setConfigLoading(false));
   }, []);
@@ -146,34 +121,7 @@ export default function KnowledgeBaseForm() {
   const validate = useCallback((): string[] => {
     const missing: string[] = [];
     if (!form.name.trim()) missing.push('知识库名称');
-    if (!form.llm.baseUrl.trim()) missing.push('LLM Base URL');
-    if (!form.llm.apiKey.trim()) missing.push('LLM API Key');
-    if (!form.llm.model.trim()) missing.push('LLM Model');
-    if (!form.embedding.baseUrl.trim()) missing.push('Embedding Base URL');
-    if (!form.embedding.apiKey.trim()) missing.push('Embedding API Key');
-    if (!form.embedding.model.trim()) missing.push('Embedding Model');
     return missing;
-  }, [form]);
-
-  // Save global config
-  const handleSaveGlobalConfig = useCallback(async () => {
-    setSavingGlobal(true);
-    try {
-      const updated = await api.updateGlobalConfig({
-        llm_base_url: form.llm.baseUrl.trim(),
-        llm_api_key: form.llm.apiKey.trim(),
-        llm_model: form.llm.model.trim(),
-        embedding_base_url: form.embedding.baseUrl.trim(),
-        embedding_api_key: form.embedding.apiKey.trim(),
-        embedding_model: form.embedding.model.trim(),
-      });
-      setGlobalConfig(updated);
-    } catch (err) {
-      setError((err as Error).message);
-      setShowErrorModal(true);
-    } finally {
-      setSavingGlobal(false);
-    }
   }, [form]);
 
   const handleSubmit = useCallback(
@@ -191,18 +139,7 @@ export default function KnowledgeBaseForm() {
       }
 
       try {
-        // Save global config first
-        await api.updateGlobalConfig({
-          llm_base_url: form.llm.baseUrl.trim(),
-          llm_api_key: form.llm.apiKey.trim(),
-          llm_model: form.llm.model.trim(),
-          embedding_base_url: form.embedding.baseUrl.trim(),
-          embedding_api_key: form.embedding.apiKey.trim(),
-          embedding_model: form.embedding.model.trim(),
-        });
-
-        // Create KB with files if any
-        const kbData = {
+        const kbData: Record<string, string | number> = {
           name: form.name.trim(),
           top_k: form.retrieval.topK,
           similarity_threshold: form.retrieval.similarityThreshold,
@@ -219,7 +156,7 @@ export default function KnowledgeBaseForm() {
         }
 
         setSuccess(true);
-        setForm(makeDefaultForm(globalConfig));
+        setForm(makeDefaultForm(defaultSystemPrompt));
         setAttachedFiles([]);
       } catch (err) {
         setError((err as Error).message);
@@ -228,7 +165,7 @@ export default function KnowledgeBaseForm() {
         setSaving(false);
       }
     },
-    [form, validate, attachedFiles, globalConfig],
+    [form, validate, attachedFiles, defaultSystemPrompt],
   );
 
   const handleNumberChange = useCallback(
@@ -268,7 +205,6 @@ export default function KnowledgeBaseForm() {
     setAttachedFiles((prev) => prev.filter((f) => f.name !== name));
   }, []);
 
-
   if (configLoading) {
     return (
       <div className="flex items-center justify-center py-20">
@@ -281,10 +217,18 @@ export default function KnowledgeBaseForm() {
     <div>
       <h2 className="text-xl font-semibold text-gray-800 mb-6">创建知识库</h2>
 
+      {/* Global config hint */}
+      <div className="bg-indigo-50 border border-indigo-200 rounded-lg px-4 py-3 mb-5 flex items-center gap-2 text-sm text-indigo-700">
+        <Settings className="w-4 h-4 flex-shrink-0" />
+        <span>
+          LLM 和 Embedding 使用全局配置，可在侧边栏「全局配置」中管理
+        </span>
+      </div>
+
       <form onSubmit={handleSubmit} className="space-y-5">
         {success && (
           <div className="bg-green-50 border border-green-200 text-green-600 text-sm rounded-lg px-4 py-3">
-            知识库创建成功！{attachedFiles.length > 0 && '文件正在后台索引中...'}
+            知识库创建成功！{attachedFiles.length > 0 && '文件已提交索引...'}
           </div>
         )}
 
@@ -299,106 +243,6 @@ export default function KnowledgeBaseForm() {
             placeholder="输入知识库名称"
           />
         </div>
-
-        {/* LLM Config — 全局配置 */}
-        <FormSection
-          title="LLM 配置（全局）"
-          icon={Globe}
-          action={
-            <button
-              type="button"
-              onClick={handleSaveGlobalConfig}
-              disabled={savingGlobal}
-              className="text-xs flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3 h-3 ${savingGlobal ? 'animate-spin' : ''}`} />
-              保存全局配置
-            </button>
-          }
-        >
-          <div className="space-y-4">
-            <div>
-              <FieldLabel label="Base URL" required hint="如 https://api.openai.com" />
-              <input
-                type="text"
-                value={form.llm.baseUrl}
-                onChange={(e) => updateField('llm', 'baseUrl', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="https://api.openai.com"
-              />
-            </div>
-            <div>
-              <FieldLabel label="API Key" required />
-              <input
-                type="password"
-                value={form.llm.apiKey}
-                onChange={(e) => updateField('llm', 'apiKey', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="sk-..."
-              />
-            </div>
-            <div>
-              <FieldLabel label="Model" required />
-              <input
-                type="text"
-                value={form.llm.model}
-                onChange={(e) => updateField('llm', 'model', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="gpt-4o-mini"
-              />
-            </div>
-          </div>
-        </FormSection>
-
-        {/* Embedding Config — 全局配置 */}
-        <FormSection
-          title="Embedding 配置（全局）"
-          icon={Brain}
-          action={
-            <button
-              type="button"
-              onClick={handleSaveGlobalConfig}
-              disabled={savingGlobal}
-              className="text-xs flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-white border border-gray-200 text-gray-600 hover:border-indigo-300 hover:text-indigo-600 transition-colors disabled:opacity-50"
-            >
-              <RefreshCw className={`w-3 h-3 ${savingGlobal ? 'animate-spin' : ''}`} />
-              保存全局配置
-            </button>
-          }
-        >
-          <div className="space-y-4">
-            <div>
-              <FieldLabel label="Base URL" required />
-              <input
-                type="text"
-                value={form.embedding.baseUrl}
-                onChange={(e) => updateField('embedding', 'baseUrl', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="https://api.openai.com"
-              />
-            </div>
-            <div>
-              <FieldLabel label="API Key" required />
-              <input
-                type="password"
-                value={form.embedding.apiKey}
-                onChange={(e) => updateField('embedding', 'apiKey', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="sk-..."
-              />
-            </div>
-            <div>
-              <FieldLabel label="Model" required />
-              <input
-                type="text"
-                value={form.embedding.model}
-                onChange={(e) => updateField('embedding', 'model', e.target.value)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none"
-                placeholder="text-embedding-ada-002"
-              />
-            </div>
-          </div>
-        </FormSection>
 
         {/* Retrieval Config */}
         <FormSection title="检索配置" icon={Search}>
@@ -469,13 +313,13 @@ export default function KnowledgeBaseForm() {
 
         {/* System Prompt */}
         <div className="bg-white rounded-xl border border-gray-200 p-5">
-          <FieldLabel label="System Prompt" hint="可选，默认使用全局配置" />
+          <FieldLabel label="System Prompt" hint="可选，默认为全局配置" />
           <textarea
             value={form.systemPrompt}
             onChange={(e) => updateField('systemPrompt', 'systemPrompt', e.target.value)}
             rows={4}
             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none resize-none"
-            placeholder={globalConfig?.default_system_prompt || 'You are a helpful assistant...'}
+            placeholder={defaultSystemPrompt || 'You are a helpful assistant...'}
           />
         </div>
 
@@ -504,7 +348,6 @@ export default function KnowledgeBaseForm() {
             <p className="text-xs text-gray-400 mt-1">支持 .md 文件，可多选</p>
           </div>
 
-          {/* Attached Files List */}
           {attachedFiles.length > 0 && (
             <div className="mt-3 space-y-2">
               {attachedFiles.map((file) => (

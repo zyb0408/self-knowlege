@@ -17,11 +17,18 @@ import {
 type TabId = 'list' | 'create' | 'debug';
 
 export default function AdminDashboard() {
-  const { logout } = useAdmin();
+  const { authenticated, loading: authLoading, logout } = useAdmin();
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<TabId>('list');
   const [kbs, setKbs] = useState<KnowledgeBase[]>([]);
   const [loading, setLoading] = useState(true);
+
+  // Auth guard — redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !authenticated) {
+      navigate('/admin/login', { replace: true });
+    }
+  }, [authenticated, authLoading, navigate]);
 
   const fetchKbs = useCallback(async () => {
     try {
@@ -50,6 +57,7 @@ export default function AdminDashboard() {
 
   const handleLogout = async () => {
     await logout();
+    navigate('/admin/login');
   };
 
   const tabs = [

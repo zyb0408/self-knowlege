@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect, useRef, memo } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { api, KnowledgeBaseDetail as KBDetail } from '@/lib/api';
+import { useAdmin } from '@/context/admin-context';
 import {
   ArrowLeft,
   Save,
@@ -44,8 +45,16 @@ const statusConfig: Record<string, { label: string; color: string; icon: React.E
 export default function KnowledgeBaseDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const { authenticated, loading: authLoading } = useAdmin();
   const [kb, setKb] = useState<KBDetail | null>(null);
   const [loading, setLoading] = useState(true);
+
+  // Auth guard — redirect to login if not authenticated
+  useEffect(() => {
+    if (!authLoading && !authenticated) {
+      navigate('/admin/login', { replace: true });
+    }
+  }, [authenticated, authLoading, navigate]);
   const [saving, setSaving] = useState(false);
   const [reindexing, setReindexing] = useState(false);
   const [uploading, setUploading] = useState(false);

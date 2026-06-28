@@ -15,6 +15,8 @@ export default defineConfig({
       '/api': {
         target: 'http://localhost:3001',
         changeOrigin: true,
+        timeout: 600000, // 10 minutes for long embedding/indexing requests
+        proxyTimeout: 600000,
       },
     },
     historyApiFallback: true,

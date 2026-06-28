@@ -58,150 +58,164 @@ router.post(
   '/:kbId/documents',
   upload.array('files', 50),
   async (req: AdminRequest, res: Response): Promise<void> => {
-    const kbId = String(req.params.kbId);
-    const files = req.files as Express.Multer.File[];
+    try {
+      const kbId = String(req.params.kbId);
+      const files = req.files as Express.Multer.File[];
 
-    if (!files || files.length === 0) {
-      res.status(400).json({ error: '请上传文件' });
-      return;
-    }
-
-    const db = getDb();
-    const kb = db
-      .prepare('SELECT chunk_size, chunk_overlap FROM knowledge_bases WHERE id = ?')
-      .get(kbId) as
-      | {
-          chunk_size: number;
-          chunk_overlap: number;
-        }
-      | undefined;
-
-    if (!kb) {
-      res.status(404).json({ error: '知识库不存在' });
-      return;
-    }
-
-    const globalSettings = getGlobalSettings();
-
-    // Check for duplicate filenames
-    const existingRows = db
-      .prepare('SELECT filename FROM documents WHERE kb_id = ?')
-      .all(kbId) as Array<{ filename: string }>;
-    const existingFiles = existingRows.map((r) => r.filename);
-
-    const results: Array<{
-      filename: string;
-      status: string;
-      chunk_count: number;
-      error: string | null;
-    }> = [];
-
-    const store = new ChromaVectorStore();
-    const llm = new OpenAICompatibleLLM({
-      baseUrl: globalSettings.embedding_base_url,
-      apiKey: globalSettings.embedding_api_key,
-      model: globalSettings.embedding_model,
-    });
-
-    // Process files sequentially
-    for (const file of files) {
-      const filename = file.originalname;
-
-      // Skip duplicates
-      if (existingFiles.includes(filename)) {
-        results.push({
-          filename,
-          status: 'skipped',
-          chunk_count: 0,
-          error: '文件已存在，已跳过',
-        });
-        continue;
+      if (!files || files.length === 0) {
+        res.status(400).json({ error: '请上传文件' });
+        return;
       }
 
-      try {
-        // Create document record
-        const docId = uuidv4();
-        const now = Date.now();
-        db.prepare(
-          'INSERT INTO documents (id, kb_id, filename, status) VALUES (?, ?, ?, ?)',
-        ).run(docId, kbId, filename, 'indexing');
+      const db = getDb();
+      const kb = db
+        .prepare('SELECT chunk_size, chunk_overlap FROM knowledge_bases WHERE id = ?')
+        .get(kbId) as
+        | {
+            chunk_size: number;
+            chunk_overlap: number;
+          }
+        | undefined;
 
-        // Step 1: Parse MD
-        const text = parseMarkdown(file.buffer.toString('utf-8'));
+      if (!kb) {
+        res.status(404).json({ error: '知识库不存在' });
+        return;
+      }
 
-        // Step 2: Chunk
-        const chunks = chunkText(text, kb.chunk_size, kb.chunk_overlap);
+      const globalSettings = getGlobalSettings();
 
-        if (chunks.length === 0) {
-          db.prepare(
-            'UPDATE documents SET status = ?, error = ? WHERE id = ?',
-          ).run('error', '未生成分块', docId);
+      if (!globalSettings.embedding_base_url || !globalSettings.embedding_api_key) {
+        res.status(400).json({ error: 'Embedding 配置不完整，请先在创建知识库页面配置全局 Embedding' });
+        return;
+      }
+
+      // Check for duplicate filenames
+      const existingRows = db
+        .prepare('SELECT filename FROM documents WHERE kb_id = ?')
+        .all(kbId) as Array<{ filename: string }>;
+      const existingFiles = existingRows.map((r) => r.filename);
+
+      const results: Array<{
+        filename: string;
+        status: string;
+        chunk_count: number;
+        error: string | null;
+      }> = [];
+
+      const store = new ChromaVectorStore();
+      const llm = new OpenAICompatibleLLM({
+        baseUrl: globalSettings.embedding_base_url,
+        apiKey: globalSettings.embedding_api_key,
+        model: globalSettings.embedding_model,
+      });
+
+      // Process files sequentially
+      for (const file of files) {
+        const filename = file.originalname;
+
+        // Skip duplicates
+        if (existingFiles.includes(filename)) {
           results.push({
             filename,
-            status: 'error',
+            status: 'skipped',
             chunk_count: 0,
-            error: '未生成分块',
+            error: '文件已存在，已跳过',
           });
           continue;
         }
 
-        // Step 3: Embed each chunk
-        const vectorChunks: Array<{ id: string; text: string; metadata: any }> = [];
+        // Create document record
+        const docId = uuidv4();
+        const now = Date.now();
 
-        for (let i = 0; i < chunks.length; i++) {
-          try {
-            const embeddingResp = await llm.embed([chunks[i]]);
-            if (embeddingResp.vectors[0]?.length > 0) {
-              vectorChunks.push({
-                id: `${docId}_chunk_${i}`,
-                text: chunks[i],
-                metadata: {
-                  kb_id: kbId,
-                  filename,
-                  chunk_index: i,
-                },
-              });
-            }
-          } catch {
-            // Skip failed embeddings
+        try {
+          db.prepare(
+            'INSERT INTO documents (id, kb_id, filename, status) VALUES (?, ?, ?, ?)',
+          ).run(docId, kbId, filename, 'indexing');
+
+          // Step 1: Parse MD
+          const text = parseMarkdown(file.buffer.toString('utf-8'));
+
+          // Step 2: Chunk
+          const chunks = chunkText(text, kb.chunk_size, kb.chunk_overlap);
+
+          if (chunks.length === 0) {
+            db.prepare(
+              'UPDATE documents SET status = ?, error = ? WHERE id = ?',
+            ).run('error', '未生成分块', docId);
+            results.push({
+              filename,
+              status: 'error',
+              chunk_count: 0,
+              error: '未生成分块',
+            });
             continue;
           }
+
+          // Step 3: Embed each chunk
+          const vectorChunks: Array<{ id: string; text: string; metadata: any }> = [];
+
+          for (let i = 0; i < chunks.length; i++) {
+            try {
+              const embeddingResp = await llm.embed([chunks[i]]);
+              if (embeddingResp.vectors[0]?.length > 0) {
+                vectorChunks.push({
+                  id: `${docId}_chunk_${i}`,
+                  text: chunks[i],
+                  metadata: {
+                    kb_id: kbId,
+                    filename,
+                    chunk_index: i,
+                  },
+                });
+              }
+            } catch {
+              // Skip failed embeddings
+              continue;
+            }
+          }
+
+          // Step 4: Store in ChromaDB
+          if (vectorChunks.length > 0) {
+            await store.addChunks(kbId, vectorChunks);
+          }
+
+          // Update document record
+          db.prepare(
+            'UPDATE documents SET status = ?, chunk_count = ?, indexed_at = ? WHERE id = ?',
+          ).run('done', vectorChunks.length, now, docId);
+
+          existingFiles.push(filename);
+
+          results.push({
+            filename,
+            status: 'done',
+            chunk_count: vectorChunks.length,
+            error: null,
+          });
+        } catch (err) {
+          const errorMsg = (err as Error).message;
+          db.prepare(
+            'UPDATE documents SET status = ?, error = ? WHERE id = ?',
+          ).run('error', errorMsg, docId);
+
+          results.push({
+            filename,
+            status: 'error',
+            chunk_count: 0,
+            error: errorMsg,
+          });
         }
+      }
 
-        // Step 4: Store in ChromaDB
-        if (vectorChunks.length > 0) {
-          await store.addChunks(kbId, vectorChunks);
-        }
-
-        // Update document record
-        db.prepare(
-          'UPDATE documents SET status = ?, chunk_count = ?, indexed_at = ? WHERE id = ?',
-        ).run('done', vectorChunks.length, now, docId);
-
-        existingFiles.push(filename);
-
-        results.push({
-          filename,
-          status: 'done',
-          chunk_count: vectorChunks.length,
-          error: null,
-        });
-      } catch (err) {
-        const errorMsg = (err as Error).message;
-        db.prepare(
-          'UPDATE documents SET status = ?, error = ? WHERE id = ?',
-        ).run('error', errorMsg, uuidv4());
-
-        results.push({
-          filename,
-          status: 'error',
-          chunk_count: 0,
-          error: errorMsg,
-        });
+      res.json({ success: true, results });
+    } catch (err) {
+      const errorMsg = (err as Error).message;
+      console.error('Document upload error:', errorMsg);
+      if (!res.headersSent) {
+        res.status(500).json({ error: '上传处理失败', details: errorMsg });
       }
     }
-
-    res.json({ success: true, results });
   },
 );
 

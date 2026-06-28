@@ -48,7 +48,7 @@ export default function KnowledgeBaseForm() {
         [section]:
           typeof prev[section] === 'object' && prev[section] !== null
             ? { ...prev[section], [field]: value }
-            : { ...prev, [section]: value },
+            : value,
       }));
     },
     [],

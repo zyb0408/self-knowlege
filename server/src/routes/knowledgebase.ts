@@ -188,7 +188,9 @@ router.post(
               'INSERT INTO documents (id, kb_id, filename, status) VALUES (?, ?, ?, ?)',
             ).run(docId, id, filename, 'indexing');
 
-            const text = parseMarkdown(file.buffer.toString('utf-8'));
+            // Parse and chunk — free the buffer immediately
+            const rawText = file.buffer.toString('utf-8');
+            const text = parseMarkdown(rawText);
             const chunks = chunkText(text, Number(chunk_size), Number(chunk_overlap));
 
             if (chunks.length === 0) {
@@ -204,37 +206,46 @@ router.post(
               continue;
             }
 
-            const vectorChunks: Array<{
-              id: string;
-              text: string;
-              metadata: any;
-            }> = [];
+            // Limit chunks to prevent OOM (max ~2000 chunks)
+            const MAX_CHUNKS = 2000;
+            const limitedChunks = chunks.slice(0, MAX_CHUNKS);
 
-            for (let i = 0; i < chunks.length; i++) {
-              try {
-                const embeddingResp = await llm.embed([chunks[i]]);
-                if (embeddingResp.vectors[0]?.length > 0) {
-                  vectorChunks.push({
-                    id: `${docId}_chunk_${i}`,
-                    text: chunks[i],
-                    metadata: {
-                      kb_id: id,
-                      filename,
-                      chunk_index: i,
-                    },
-                  });
+            // Process in batches to limit memory usage
+            const BATCH_SIZE = 20;
+            let totalIndexed = 0;
+
+            for (let batchStart = 0; batchStart < limitedChunks.length; batchStart += BATCH_SIZE) {
+              const batchEnd = Math.min(batchStart + BATCH_SIZE, limitedChunks.length);
+              const batch: Array<{ id: string; text: string; metadata: any }> = [];
+
+              for (let i = batchStart; i < batchEnd; i++) {
+                try {
+                  const embeddingResp = await llm.embed([limitedChunks[i]]);
+                  if (embeddingResp.vectors[0]?.length > 0) {
+                    batch.push({
+                      id: `${docId}_chunk_${i}`,
+                      text: limitedChunks[i],
+                      metadata: { kb_id: id, filename, chunk_index: i },
+                    });
+                  }
+                } catch (embedErr) {
+                  if (!firstEmbedError) {
+                    firstEmbedError = (embedErr as Error).message;
+                  }
+                  // If first batch fails entirely, abort early
+                  if (batchStart === 0 && i === batchStart) {
+                    break;
+                  }
                 }
-              } catch (embedErr) {
-                if (!firstEmbedError) {
-                  firstEmbedError = (embedErr as Error).message;
-                }
-                continue;
+              }
+
+              if (batch.length > 0) {
+                await store.addChunks(id, batch);
+                totalIndexed += batch.length;
               }
             }
 
-            if (vectorChunks.length > 0) {
-              await store.addChunks(id, vectorChunks);
-            } else if (firstEmbedError) {
+            if (totalIndexed === 0 && firstEmbedError) {
               db.prepare(
                 'UPDATE documents SET status = ?, error = ? WHERE id = ?',
               ).run('error', `Embedding 失败: ${firstEmbedError}`, docId);
@@ -249,12 +260,12 @@ router.post(
 
             db.prepare(
               'UPDATE documents SET status = ?, chunk_count = ?, indexed_at = ? WHERE id = ?',
-            ).run('done', vectorChunks.length, Date.now(), docId);
+            ).run('done', totalIndexed, Date.now(), docId);
 
             fileResults.push({
               filename,
               status: 'done',
-              chunk_count: vectorChunks.length,
+              chunk_count: totalIndexed,
               error: null,
             });
           } catch (err) {

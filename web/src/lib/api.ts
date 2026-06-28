@@ -106,8 +106,10 @@ export const api = {
       body: formData,
     }).then((r) => {
       if (!r.ok) {
-        return r.json().then((err) => {
-          throw new Error(err.error || '创建失败');
+        return r.json().catch(() => {
+          throw new Error(`服务器错误 (${r.status})，请检查后端日志`);
+        }).then((err) => {
+          throw new Error(err.error || `服务器错误 (${r.status})`);
         });
       }
       return r.json();
@@ -138,8 +140,10 @@ export const api = {
       body: formData,
     }).then((r) => {
       if (!r.ok) {
-        return r.json().then((err) => {
-          throw new Error(err.error || '上传失败');
+        return r.json().catch(() => {
+          throw new Error(`服务器错误 (${r.status})，请检查后端日志`);
+        }).then((err) => {
+          throw new Error(err.error || `服务器错误 (${r.status})`);
         });
       }
       return r.json();

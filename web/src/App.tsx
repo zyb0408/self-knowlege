@@ -1,4 +1,4 @@
-import { HashRouter, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AdminProvider } from '@/context/admin-context';
 import { ChatProvider } from '@/context/chat-context';
 import { useLocalStorage } from '@/hooks/use-local-storage';
@@ -12,13 +12,13 @@ export default function App() {
   return (
     <AdminProvider>
       <ChatProvider initialHistory={history}>
-        <HashRouter>
+        <BrowserRouter>
           <Routes>
             <Route path="/" element={<UserChatPage />} />
             <Route path="/admin/login" element={<AdminLoginPage />} />
             <Route path="/admin/dashboard" element={<AdminDashboard />} />
           </Routes>
-        </HashRouter>
+        </BrowserRouter>
       </ChatProvider>
     </AdminProvider>
   );

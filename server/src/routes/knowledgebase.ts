@@ -360,9 +360,21 @@ router.post('/:id/reindex', async (req: Request, res: Response): Promise<void> =
   }
 
   // Delete existing ChromaDB collection and recreate
-  const store = new ChromaVectorStore();
-  await store.deleteCollection(kbId).catch(() => {});
-  await store.createCollection(kbId);
+  let store: ChromaVectorStore;
+  try {
+    store = new ChromaVectorStore();
+    await store.deleteCollection(kbId).catch(() => {
+      // Collection may not exist yet, ignore
+    });
+    await store.createCollection(kbId);
+  } catch (err) {
+    const msg = (err as Error).message;
+    res.status(500).json({
+      error: '无法连接向量数据库，请确认 ChromaDB 已启动',
+      details: msg,
+    });
+    return;
+  }
 
   const llm = new OpenAICompatibleLLM({
     baseUrl: globalSettings.embedding_base_url,
@@ -370,6 +382,7 @@ router.post('/:id/reindex', async (req: Request, res: Response): Promise<void> =
     model: globalSettings.embedding_model,
   });
 
+  // Mark all documents as pending — raw files are not stored, so re-upload is needed
   const results: Array<{
     filename: string;
     status: string;
@@ -378,34 +391,18 @@ router.post('/:id/reindex', async (req: Request, res: Response): Promise<void> =
   }> = [];
 
   for (const doc of documents) {
-    try {
-      // We need the original file content to re-index
-      // Since we don't store the raw file, mark as needing re-upload
-      db.prepare('UPDATE documents SET status = ? WHERE id = ?').run(
-        'indexing',
-        doc.id,
-      );
+    db.prepare('UPDATE documents SET status = ?, error = ? WHERE id = ?').run(
+      'pending',
+      '需要重新上传文件以完成索引',
+      doc.id,
+    );
 
-      // Note: re-indexing requires the original file.
-      // Set status to pending and let user re-upload.
-      db.prepare(
-        'UPDATE documents SET status = ?, error = ? WHERE id = ?',
-      ).run('pending', '需要重新上传文件以完成索引', doc.id);
-
-      results.push({
-        filename: doc.filename,
-        status: 'pending',
-        chunk_count: 0,
-        error: '需要重新上传文件以完成索引',
-      });
-    } catch (err) {
-      results.push({
-        filename: doc.filename,
-        status: 'error',
-        chunk_count: 0,
-        error: (err as Error).message,
-      });
-    }
+    results.push({
+      filename: doc.filename,
+      status: 'pending',
+      chunk_count: 0,
+      error: '需要重新上传文件以完成索引',
+    });
   }
 
   res.json({ success: true, results });

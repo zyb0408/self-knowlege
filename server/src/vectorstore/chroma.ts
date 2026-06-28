@@ -6,7 +6,9 @@ export class ChromaVectorStore implements VectorStore {
   private client: ChromaClient;
 
   constructor() {
-    this.client = new ChromaClient({ path: `http://${config.chromaHost}:${config.chromaPort}` });
+    this.client = new ChromaClient({
+      path: `http://${config.chromaHost}:${config.chromaPort}`,
+    });
   }
 
   private async getCollection(kbId: string) {
@@ -24,11 +26,7 @@ export class ChromaVectorStore implements VectorStore {
   }
 
   async deleteCollection(kbId: string): Promise<void> {
-    try {
-      await this.client.deleteCollection({ name: `kb_${kbId}` });
-    } catch {
-      // Collection may not exist
-    }
+    await this.client.deleteCollection({ name: `kb_${kbId}` });
   }
 
   async addChunks(kbId: string, chunks: Chunk[]): Promise<void> {

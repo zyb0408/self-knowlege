@@ -121,6 +121,30 @@ export class OpenAICompatibleLLM implements LLMAdapter {
     return { content: fullContent };
   }
 
+  async listModels(signal?: AbortSignal): Promise<string[]> {
+    const controller = signal ?? createTimeoutController(this.timeout);
+    const abortSignal: AbortSignal = controller instanceof AbortController ? controller.signal : controller;
+    const response = await fetch(`${this.baseUrl}/models`, {
+      method: 'GET',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+      signal: abortSignal,
+    });
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`获取模型列表失败 (${response.status}): ${error}`);
+    }
+
+    const data = (await response.json()) as {
+      data?: { id: string }[];
+    };
+
+    return (data.data ?? []).map((m) => m.id);
+  }
+
   async embed(texts: string[], signal?: AbortSignal): Promise<EmbeddingResponse> {
     const controller = signal ?? createTimeoutController(this.timeout);
     const abortSignal: AbortSignal = controller instanceof AbortController ? controller.signal : controller;

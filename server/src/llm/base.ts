@@ -20,4 +20,5 @@ export interface LLMAdapter {
     signal?: AbortSignal,
   ): Promise<ChatResponse>;
   embed(texts: string[], signal?: AbortSignal): Promise<EmbeddingResponse>;
+  listModels(signal?: AbortSignal): Promise<string[]>;
 }

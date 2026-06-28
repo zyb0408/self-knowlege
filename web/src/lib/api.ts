@@ -74,6 +74,21 @@ export interface EmbeddingTestResult {
   hint?: string;
 }
 
+export interface LlmTestResult {
+  ok: boolean;
+  model?: string;
+  modelCount?: number;
+  message?: string;
+  error?: string;
+  hint?: string;
+}
+
+export interface ModelsResult {
+  ok: boolean;
+  models?: string[];
+  error?: string;
+}
+
 export const api = {
   // Admin
   login: (password: string) => request('/admin/login', {
@@ -90,8 +105,20 @@ export const api = {
       method: 'PUT',
       body: JSON.stringify(data),
     }),
+  testLlm: () =>
+    request<LlmTestResult>('/config/test-llm', {
+      method: 'POST',
+    }),
   testEmbedding: () =>
     request<EmbeddingTestResult>('/config/test-embedding', {
+      method: 'POST',
+    }),
+  fetchLlmModels: () =>
+    request<ModelsResult>('/config/models', {
+      method: 'POST',
+    }),
+  fetchEmbeddingModels: () =>
+    request<ModelsResult>('/config/embedding-models', {
       method: 'POST',
     }),
 

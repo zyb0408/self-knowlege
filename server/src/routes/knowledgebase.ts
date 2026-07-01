@@ -31,7 +31,8 @@ router.get('/', (_req: Request, res: Response): void => {
   const kbs = db
     .prepare(
       `SELECT id, name, created_at, top_k, similarity_threshold, distance_metric,
-              chunk_size, chunk_overlap, system_prompt
+              chunk_size, chunk_overlap, chunk_strategy, max_tokens, min_chunk_size, 
+              separators, embedding_batch_size, system_prompt
        FROM knowledge_bases ORDER BY created_at DESC`,
     )
     .all() as Array<{
@@ -43,6 +44,11 @@ router.get('/', (_req: Request, res: Response): void => {
     distance_metric: string;
     chunk_size: number;
     chunk_overlap: number;
+    chunk_strategy: string;
+    max_tokens: number;
+    min_chunk_size: number;
+    separators: string;
+    embedding_batch_size: number;
     system_prompt: string;
   }>;
 
@@ -118,6 +124,11 @@ router.post(
       distance_metric = 'cosine',
       chunk_size = 500,
       chunk_overlap = 50,
+      chunk_strategy = 'recursive',
+      max_tokens = 512,
+      min_chunk_size = 50,
+      separators = '\n\n,\n, 。,，,. , ',
+      embedding_batch_size = 20,
       system_prompt = '',
     } = req.body;
 
@@ -137,8 +148,9 @@ router.post(
          llm_base_url, llm_api_key, llm_model,
          embedding_base_url, embedding_api_key, embedding_model,
          top_k, similarity_threshold, distance_metric,
-         chunk_size, chunk_overlap, system_prompt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         chunk_size, chunk_overlap, chunk_strategy, max_tokens, min_chunk_size, separators, embedding_batch_size,
+         system_prompt)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         name,
@@ -154,6 +166,11 @@ router.post(
         distance_metric,
         Number(chunk_size),
         Number(chunk_overlap),
+        chunk_strategy,
+        Number(max_tokens),
+        Number(min_chunk_size),
+        separators,
+        Number(embedding_batch_size),
         system_prompt || globalSettings.default_system_prompt,
       );
 
@@ -191,7 +208,27 @@ router.post(
             // Parse and chunk — free the buffer immediately
             const rawText = file.buffer.toString('utf-8');
             const text = parseMarkdown(rawText);
-            const chunks = chunkText(text, Number(chunk_size), Number(chunk_overlap));
+            
+            // 获取知识库的分块配置（包括新增参数）
+            const kbConfig = db.prepare(
+              'SELECT chunk_strategy, max_tokens, min_chunk_size, separators, embedding_batch_size FROM knowledge_bases WHERE id = ?'
+            ).get(id) as { 
+              chunk_strategy: string; 
+              max_tokens: number; 
+              min_chunk_size: number; 
+              separators: string;
+              embedding_batch_size: number;
+            } | undefined;
+            
+            // 使用新的分块 API，支持多种策略和参数
+            const chunks = chunkText(text, {
+              chunkSize: Number(chunk_size),
+              chunkOverlap: Number(chunk_overlap),
+              chunkStrategy: (kbConfig?.chunk_strategy as 'fixed' | 'recursive' | 'semantic') || 'recursive',
+              maxTokens: kbConfig?.max_tokens || 512,
+              minChunkSize: kbConfig?.min_chunk_size || 50,
+              separators: kbConfig?.separators || '\n\n,\n, 。,，,. , ',
+            });
 
             if (chunks.length === 0) {
               db.prepare(
@@ -210,12 +247,12 @@ router.post(
             const MAX_CHUNKS = 2000;
             const limitedChunks = chunks.slice(0, MAX_CHUNKS);
 
-            // Process in batches to limit memory usage
-            const BATCH_SIZE = 20;
+            // 使用知识库配置的批量大小，默认为 20
+            const batchSize = kbConfig?.embedding_batch_size || 20;
             let totalIndexed = 0;
 
-            for (let batchStart = 0; batchStart < limitedChunks.length; batchStart += BATCH_SIZE) {
-              const batchEnd = Math.min(batchStart + BATCH_SIZE, limitedChunks.length);
+            for (let batchStart = 0; batchStart < limitedChunks.length; batchStart += batchSize) {
+              const batchEnd = Math.min(batchStart + batchSize, limitedChunks.length);
               const batch: Array<{ id: string; text: string; metadata: any }> = [];
 
               for (let i = batchStart; i < batchEnd; i++) {
@@ -313,6 +350,11 @@ router.put('/:id', (req: Request, res: Response): void => {
     distance_metric,
     chunk_size,
     chunk_overlap,
+    chunk_strategy,
+    max_tokens,
+    min_chunk_size,
+    separators,
+    embedding_batch_size,
     system_prompt,
   } = req.body;
 
@@ -332,6 +374,11 @@ router.put('/:id', (req: Request, res: Response): void => {
       distance_metric = COALESCE(?, distance_metric),
       chunk_size = COALESCE(?, chunk_size),
       chunk_overlap = COALESCE(?, chunk_overlap),
+      chunk_strategy = COALESCE(?, chunk_strategy),
+      max_tokens = COALESCE(?, max_tokens),
+      min_chunk_size = COALESCE(?, min_chunk_size),
+      separators = COALESCE(?, separators),
+      embedding_batch_size = COALESCE(?, embedding_batch_size),
       system_prompt = COALESCE(?, system_prompt)
   `).run(
     name ?? null,
@@ -346,6 +393,11 @@ router.put('/:id', (req: Request, res: Response): void => {
     distance_metric ?? null,
     chunk_size ?? null,
     chunk_overlap ?? null,
+    chunk_strategy ?? null,
+    max_tokens ?? null,
+    min_chunk_size ?? null,
+    separators ?? null,
+    embedding_batch_size ?? null,
     system_prompt ?? null,
   );
 

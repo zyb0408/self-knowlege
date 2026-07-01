@@ -13,6 +13,12 @@ export interface GlobalSettings {
   default_system_prompt: string;
 }
 
+// 知识库分块策略类型
+export type ChunkStrategy = 'fixed' | 'recursive' | 'semantic';
+
+// 知识库距离度量类型
+export type DistanceMetric = 'cosine' | 'l2';
+
 let db: Database.Database | undefined;
 
 export function getDb(): Database.Database {
@@ -48,8 +54,16 @@ function initTables(): void {
       similarity_threshold REAL NOT NULL DEFAULT 0.5,
       distance_metric TEXT NOT NULL DEFAULT 'cosine',
 
+      -- 分块配置参数
       chunk_size INTEGER NOT NULL DEFAULT 500,
       chunk_overlap INTEGER NOT NULL DEFAULT 50,
+      chunk_strategy TEXT NOT NULL DEFAULT 'recursive',
+      max_tokens INTEGER NOT NULL DEFAULT 512,
+      min_chunk_size INTEGER NOT NULL DEFAULT 50,
+      separators TEXT NOT NULL DEFAULT '\n\n,\n, 。,，,. , ',
+      
+      -- Embedding 批量大小配置
+      embedding_batch_size INTEGER NOT NULL DEFAULT 20,
 
       system_prompt TEXT NOT NULL DEFAULT ''
     );
@@ -79,6 +93,20 @@ function initTables(): void {
     CREATE INDEX IF NOT EXISTS idx_documents_kb_id ON documents(kb_id);
     CREATE INDEX IF NOT EXISTS idx_documents_filename ON documents(kb_id, filename);
   `);
+
+    // 迁移：为现有知识库添加新的分块配置字段（如果不存在）
+    try {
+      db.prepare("SELECT chunk_strategy FROM knowledge_bases LIMIT 1").get();
+    } catch {
+      // 字段不存在，添加新字段
+      db.exec(`
+        ALTER TABLE knowledge_bases ADD COLUMN chunk_strategy TEXT NOT NULL DEFAULT 'recursive';
+        ALTER TABLE knowledge_bases ADD COLUMN max_tokens INTEGER NOT NULL DEFAULT 512;
+        ALTER TABLE knowledge_bases ADD COLUMN min_chunk_size INTEGER NOT NULL DEFAULT 50;
+        ALTER TABLE knowledge_bases ADD COLUMN separators TEXT NOT NULL DEFAULT '\\n\\n,\\n, 。,，,. , ';
+        ALTER TABLE knowledge_bases ADD COLUMN embedding_batch_size INTEGER NOT NULL DEFAULT 20;
+      `);
+    }
 
     // Seed global settings from config if not present
     seedSettings();

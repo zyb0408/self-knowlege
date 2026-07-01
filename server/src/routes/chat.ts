@@ -141,20 +141,26 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
   if (kbConfig) {
     const store = new ChromaVectorStore();
     
+    // 构建高级检索选项
+    const searchOptions = {
+      topK: topK,
+      threshold: similarityThreshold,
+      distanceMetric: distanceMetric as 'cosine' | 'l2' | 'ip',
+      minScore: 0.3, // 默认最低相似度分数
+      enableHybridSearch: false, // 可通过配置开启混合检索
+      enableQueryRewrite: false, // 可通过配置开启查询改写
+      enableRerank: false, // 可通过配置开启重排序
+      rerankTopK: topK,
+      embeddingBaseUrl,
+      embeddingApiKey,
+      embeddingModel,
+    };
+    
     // 带重试和计时的向量检索
     const startTime = Date.now();
     try {
       const results = await executeWithRetry(() => 
-        store.search(
-          kbId,
-          message,
-          topK,
-          similarityThreshold,
-          distanceMetric,
-          embeddingBaseUrl,
-          embeddingApiKey,
-          embeddingModel,
-        )
+        store.search(kbId, message, searchOptions)
       );
 
       retrievalTimeMs = Date.now() - startTime;
@@ -163,7 +169,8 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
         filename: r.metadata.filename,
         chunk_index: r.metadata.chunk_index,
         distance: r.distance,
-        similarity: parseFloat((1 - r.distance / 2).toFixed(4)),
+        score: r.score,
+        similarity: r.score,
       }));
 
       // 从历史记录中获取上一轮 AI 回答作为上下文
@@ -295,16 +302,16 @@ router.post('/retrieval/debug', async (req: Request, res: Response): Promise<voi
   }
 
   const store = new ChromaVectorStore();
-  const results = await store.search(
-    kbId,
-    query,
-    topK || kb.top_k || 5,
-    kb.similarity_threshold || 0.5,
-    kb.distance_metric || 'cosine',
-    kb.embedding_base_url || globalSettings.embedding_base_url,
-    kb.embedding_api_key || globalSettings.embedding_api_key,
-    kb.embedding_model || globalSettings.embedding_model,
-  );
+  const searchOptions = {
+    topK: topK || kb.top_k || 5,
+    threshold: kb.similarity_threshold || 0.5,
+    distanceMetric: (kb.distance_metric || 'cosine') as 'cosine' | 'l2' | 'ip',
+    embeddingBaseUrl: kb.embedding_base_url || globalSettings.embedding_base_url,
+    embeddingApiKey: kb.embedding_api_key || globalSettings.embedding_api_key,
+    embeddingModel: kb.embedding_model || globalSettings.embedding_model,
+  };
+
+  const results = await store.search(kbId, query, searchOptions);
 
   const formattedResults = results.map((r: any) => ({
     id: r.id,
@@ -312,7 +319,8 @@ router.post('/retrieval/debug', async (req: Request, res: Response): Promise<voi
     filename: r.metadata.filename,
     chunkIndex: r.metadata.chunk_index,
     distance: r.distance,
-    similarity: parseFloat((1 - r.distance / 2).toFixed(4)),
+    similarity: r.score,
+    score: r.score,
   }));
 
   res.json({ query, results: formattedResults });

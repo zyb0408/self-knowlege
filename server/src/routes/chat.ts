@@ -71,17 +71,32 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
   const db = getDb();
   const globalSettings = getGlobalSettings();
 
-  // 构建系统提示和获取知识库配置
-  let systemPrompt = globalSettings.default_system_prompt;
-  let kbConfig: KBRow | null = null;
+  // 【场景判断】是否选择了知识库
+  // 如果未选择知识库 (kbId 为空)，则直接使用全局 LLM 配置进行纯对话，不执行向量检索
+  const isGlobalMode = !kbId;
+
+  // 1. 确定 LLM 配置来源
+  // 默认使用全局配置（兜底配置）
   let llmBaseUrl = globalSettings.llm_base_url;
   let llmApiKey = globalSettings.llm_api_key;
   let llmModel = globalSettings.llm_model;
+  
+  // 2. 确定 Embedding 配置来源（仅在使用知识库时需要）
   let embeddingBaseUrl = globalSettings.embedding_base_url;
   let embeddingApiKey = globalSettings.embedding_api_key;
   let embeddingModel = globalSettings.embedding_model;
+  
+  // 3. 系统提示词默认使用全局配置
+  let systemPrompt = globalSettings.default_system_prompt;
+  
+  // 4. 检索相关参数（仅在使用知识库时有效）
+  let kbConfig: KBRow | null = null;
+  let topK = 5;
+  let similarityThreshold = 0.5;
+  let distanceMetric = 'cosine';
 
-  if (kbId) {
+  if (!isGlobalMode) {
+    // 加载知识库级别的配置
     const kbRow = db
       .prepare(`SELECT 
         llm_base_url, llm_api_key, llm_model,
@@ -97,17 +112,23 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
 
     kbConfig = kbRow;
     
-    // 优先使用知识库级别的 LLM 配置，如果为空则回退到全局配置
+    // 【优先级规则】知识库配置 > 全局配置
+    // LLM 配置：优先使用知识库级别配置，为空则回退到全局配置
     llmBaseUrl = kbRow.llm_base_url || globalSettings.llm_base_url;
     llmApiKey = kbRow.llm_api_key || globalSettings.llm_api_key;
     llmModel = kbRow.llm_model || globalSettings.llm_model;
     
-    // 优先使用知识库级别的 Embedding 配置，确保与索引时一致
+    // Embedding 配置：优先使用知识库级别配置，确保与文档索引时一致
     embeddingBaseUrl = kbRow.embedding_base_url || globalSettings.embedding_base_url;
     embeddingApiKey = kbRow.embedding_api_key || globalSettings.embedding_api_key;
     embeddingModel = kbRow.embedding_model || globalSettings.embedding_model;
     
-    // 使用知识库的系统提示，如果为空则使用全局默认
+    // 检索参数
+    topK = kbRow.top_k || 5;
+    similarityThreshold = kbRow.similarity_threshold || 0.5;
+    distanceMetric = kbRow.distance_metric || 'cosine';
+    
+    // 系统提示词：优先使用知识库级别配置
     systemPrompt = kbRow.system_prompt || globalSettings.default_system_prompt;
   }
 
@@ -116,6 +137,7 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
   let retrievalResults: any[] = [];
   let retrievalTimeMs = 0;
 
+  // 【条件检索】仅在选择知识库时执行向量检索
   if (kbConfig) {
     const store = new ChromaVectorStore();
     
@@ -126,9 +148,9 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
         store.search(
           kbId,
           message,
-          kbConfig!.top_k || 5,
-          kbConfig!.similarity_threshold || 0.5,
-          kbConfig!.distance_metric || 'cosine',
+          topK,
+          similarityThreshold,
+          distanceMetric,
           embeddingBaseUrl,
           embeddingApiKey,
           embeddingModel,
@@ -182,6 +204,7 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
       })}\n\n`);
     }
   }
+  // 如果是全局模式（未选择知识库），userPrompt 保持原始 message，直接发送给 LLM
 
   // 构建对话消息（保留最近 10 轮对话，避免 token 超限）
   const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [

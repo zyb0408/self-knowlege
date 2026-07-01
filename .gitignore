@@ -1,56 +1,60 @@
-```
 # Dependencies
 node_modules/
-.pnpm-store/
 
-# Build outputs
+# Build artifacts
 dist/
 build/
 target/
 
-# Logs
-*.log
-
-# Environment variables
-.env
-.env.local
-*.env
-
-# IDE specific
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Python specific
+# Python
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
+*.py.class
 .Python
-*.so
-.coverage
-htmlcov/
-.coverage.*
-.pytest_cache/
-.mypy_cache/
+env/
+venv/
+.venv/
+.ENV
+pip-log.txt
+pip-delete-this-directory.txt
 .tox/
-
-# Node specific
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# OS generated files
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git/modules/
+*.sublime-workspace
+.pytest_cache/
+.hypothesis/
 .DS_Store
 Thumbs.db
 
-# Temporary files
-*.tmp
-*.temp
-*.bak
+# Environment
+.env
+.env.local
+.env.*
 
-# Compression files
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+*.tmp
+
+# Logs
+*.log
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
+
+# Compressed files
 *.zip
 *.gz
 *.tar
@@ -73,4 +77,9 @@ Thumbs.db
 *.tar.bz2
 *.tar.xz
 *.tar.zst
-```
+
+# Gradle
+.gradle/
+
+# MyPy
+.mypy_cache/

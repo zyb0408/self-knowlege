@@ -137,8 +137,13 @@ router.post(
           const rawText = file.buffer.toString('utf-8');
           const text = parseMarkdown(rawText);
 
-          // Step 2: Chunk
-          const allChunks = chunkText(text, kb.chunk_size, kb.chunk_overlap);
+          // Step 2: Chunk (使用新的分块 API，传入配置对象)
+          const allChunks = chunkText(text, {
+            chunkSize: kb.chunk_size || 500,
+            chunkOverlap: kb.chunk_overlap || 50,
+            chunkStrategy: 'recursive', // 默认使用递归分块策略
+            minChunkSize: 50, // 最小分块大小，避免噪声
+          });
 
           if (allChunks.length === 0) {
             db.prepare(

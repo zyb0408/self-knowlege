@@ -89,6 +89,15 @@ export interface ModelsResult {
   error?: string;
 }
 
+export interface SearchOptions {
+  enableQueryRewrite?: boolean;      // 是否启用查询改写
+  enableHybridSearch?: boolean;       // 是否启用混合检索（向量 + 关键词）
+  enableRerank?: boolean;             // 是否启用 LLM 重排序
+  topK?: number;                      // 返回结果数量
+  minScore?: number;                  // 最低相似度阈值
+  filter?: Record<string, any>;       // 元数据过滤条件
+}
+
 export const api = {
   // Admin
   login: (password: string) => request('/admin/login', {
@@ -202,13 +211,14 @@ export const api = {
     onChunk: (content: string) => void,
     onDone: (data: any) => void,
     onError: (error: string) => void,
+    searchOptions?: SearchOptions, // 高级检索配置参数
   ) => {
     const controller = new AbortController();
     fetch(`${API_BASE}/chat/stream`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ kbId, message, history }),
+      body: JSON.stringify({ kbId, message, history, searchOptions }),
       signal: controller.signal,
     })
       .then(async (response) => {

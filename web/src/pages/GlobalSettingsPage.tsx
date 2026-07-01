@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, memo } from 'react';
-import { api, GlobalConfig, LlmTestResult, EmbeddingTestResult, ModelsResult } from '@/lib/api';
+import { api, GlobalConfig, LlmTestResult, EmbeddingTestResult } from '@/lib/api';
 import {
   Globe,
   Brain,
@@ -47,7 +47,7 @@ function StatusBadge({ ok }: { ok: boolean }) {
 
 // ── Main component ──────────────────────────────────────────
 export default function GlobalSettingsPage() {
-  const [config, setConfig] = useState<GlobalConfig | null>(null);
+  const [_config, setConfig] = useState<GlobalConfig | null>(null);
   const [loading, setLoading] = useState(true);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

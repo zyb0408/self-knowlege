@@ -5,7 +5,8 @@ import { api } from '@/lib/api';
 import MessageList from '@/components/MessageList';
 import ChatInput from '@/components/ChatInput';
 import KnowledgeBaseSelector from '@/components/KnowledgeBaseSelector';
-import { Trash2, Loader2, Settings2, ChevronUp } from 'lucide-react';
+import ConversationSidebar, { type Conversation } from '@/components/ConversationSidebar';
+import { Trash2, Loader2, Settings2, ChevronUp, Menu } from 'lucide-react';
 
 // 高级检索配置接口
 interface SearchOptions {
@@ -18,14 +19,45 @@ interface SearchOptions {
 }
 
 export default function UserChatPage() {
-  const { state, sendMessage, setStreaming, appendStream, setError } = useChat();
+  const { state, sendMessage, setStreaming, appendStream, setError, clearHistory: clearChatContext } = useChat();
   const [selectedKbId, setSelectedKbId] = useLocalStorage<string | null>(
     'selectedKnowledgeBase',
     null,
   );
-  // 按知识库 ID 隔离存储对话历史，key 格式：chat-history-{kbId}
-  // 使用 setter 以便在对话完成后保存历史记录
-  const [history, setHistory] = useLocalStorage<Message[]>(`chat-history-${selectedKbId || 'default'}`, []);
+  
+  // Conversation management
+  const [conversations, setConversations] = useLocalStorage<Conversation[]>(
+    'chat-conversations',
+    [],
+  );
+  const [activeConversationId, setActiveConversationId] = useLocalStorage<string | null>(
+    'active-conversation-id',
+    null,
+  );
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  
+  // Get current conversation's history from localStorage
+  const getHistoryKey = useCallback((convId: string | null) => {
+    return `chat-history-${convId || 'default'}`;
+  }, []);
+  
+  // Load history for active conversation
+  const [history, setHistory] = useState<Message[]>([]);
+  
+  useEffect(() => {
+    if (activeConversationId) {
+      const key = getHistoryKey(activeConversationId);
+      try {
+        const stored = localStorage.getItem(key);
+        setHistory(stored ? JSON.parse(stored) : []);
+      } catch {
+        setHistory([]);
+      }
+    } else {
+      setHistory([]);
+    }
+  }, [activeConversationId, getHistoryKey]);
+  
   const [isSending, setIsSending] = useState(false);
   const controllerRef = useRef<AbortController | null>(null);
   
@@ -42,6 +74,45 @@ export default function UserChatPage() {
       filter: {},
     },
   );
+
+  // Generate conversation title from first message
+  const generateTitle = useCallback((firstMessage: string) => {
+    return firstMessage.length > 20 ? firstMessage.substring(0, 20) + '...' : firstMessage;
+  }, []);
+
+  // Create new conversation
+  const handleNewConversation = useCallback(() => {
+    const newConv: Conversation = {
+      id: `conv-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+      title: '新对话',
+      kbId: selectedKbId,
+      createdAt: Date.now(),
+    };
+    setConversations((prev) => [newConv, ...prev]);
+    setActiveConversationId(newConv.id);
+    clearChatContext();
+    setSidebarOpen(false);
+  }, [selectedKbId, setConversations, setActiveConversationId, clearChatContext]);
+
+  // Select conversation
+  const handleSelectConversation = useCallback((id: string) => {
+    setActiveConversationId(id);
+    setSidebarOpen(false);
+    
+    // Reload page to load history for this conversation
+    window.location.reload();
+  }, [setActiveConversationId]);
+
+  // Delete conversation
+  const handleDeleteConversation = useCallback((id: string) => {
+    const key = getHistoryKey(id);
+    localStorage.removeItem(key);
+    setConversations((prev) => prev.filter((c) => c.id !== id));
+    if (activeConversationId === id) {
+      setActiveConversationId(null);
+      clearChatContext();
+    }
+  }, [getHistoryKey, setConversations, activeConversationId, setActiveConversationId, clearChatContext]);
 
   useEffect(() => {
     setStreaming(false);
@@ -117,11 +188,32 @@ export default function UserChatPage() {
   );
 
   const handleClearHistory = useCallback(() => {
-    // 清空当前知识库的对话历史，并重置 chat-context 中的消息状态
-    const key = `chat-history-${selectedKbId || 'default'}`;
-    localStorage.removeItem(key);
-    window.location.reload();
-  }, [selectedKbId]);
+    // 清空当前对话的历史记录
+    if (activeConversationId) {
+      const key = getHistoryKey(activeConversationId);
+      localStorage.removeItem(key);
+      setHistory([]);
+      clearChatContext();
+    }
+  }, [activeConversationId, getHistoryKey, clearChatContext]);
+
+  // Update conversation title after first message
+  useEffect(() => {
+    if (activeConversationId && state.messages.length === 1 && state.messages[0]?.role === 'user') {
+      const newTitle = generateTitle(state.messages[0].content);
+      setConversations((prev) =>
+        prev.map((c) => (c.id === activeConversationId ? { ...c, title: newTitle } : c)),
+      );
+    }
+  }, [activeConversationId, state.messages, generateTitle, setConversations]);
+
+  // Save history to localStorage when it changes
+  useEffect(() => {
+    if (activeConversationId) {
+      const key = getHistoryKey(activeConversationId);
+      localStorage.setItem(key, JSON.stringify(history));
+    }
+  }, [activeConversationId, history, getHistoryKey]);
 
   // 更新检索配置参数
   const updateSearchOption = useCallback(<K extends keyof SearchOptions>(
@@ -132,39 +224,61 @@ export default function UserChatPage() {
   }, [setSearchOptions]);
 
   return (
-    <div className="flex flex-col h-screen bg-gray-50">
-      {/* Header */}
-      <header className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-3">
-        <div className="max-w-3xl mx-auto flex items-center justify-between">
-          <h1 className="text-lg font-semibold text-gray-800">
-            知识问答助手
-          </h1>
-          <div className="flex items-center gap-3">
-            <KnowledgeBaseSelector
-              selectedKbId={selectedKbId}
-              onKbChange={setSelectedKbId}
-            />
-            <button
-              onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
-              className={`p-2 transition-colors rounded-lg ${
-                showAdvancedSettings 
-                  ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' 
-                  : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
-              }`}
-              title="高级检索设置"
-            >
-              <Settings2 className="w-4 h-4" />
-            </button>
-            <button
-              onClick={handleClearHistory}
-              className="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-gray-100"
-              title="清空对话"
-            >
-              <Trash2 className="w-4 h-4" />
-            </button>
+    <div className="flex h-screen bg-gray-50">
+      {/* Sidebar */}
+      <ConversationSidebar
+        conversations={conversations}
+        activeConversationId={activeConversationId}
+        onSelectConversation={handleSelectConversation}
+        onNewConversation={handleNewConversation}
+        onDeleteConversation={handleDeleteConversation}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col min-w-0">
+        {/* Header */}
+        <header className="flex-shrink-0 bg-white border-b border-gray-200 px-4 py-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden p-2 text-gray-500 hover:bg-gray-100 rounded-lg"
+                title="打开侧边栏"
+              >
+                <Menu className="w-5 h-5" />
+              </button>
+              <h1 className="text-lg font-semibold text-gray-800">
+                知识问答助手
+              </h1>
+            </div>
+            <div className="flex items-center gap-3">
+              <KnowledgeBaseSelector
+                selectedKbId={selectedKbId}
+                onKbChange={setSelectedKbId}
+              />
+              <button
+                onClick={() => setShowAdvancedSettings(!showAdvancedSettings)}
+                className={`p-2 transition-colors rounded-lg ${
+                  showAdvancedSettings 
+                    ? 'text-blue-600 bg-blue-50 hover:bg-blue-100' 
+                    : 'text-gray-400 hover:text-gray-600 hover:bg-gray-100'
+                }`}
+                title="高级检索设置"
+              >
+                <Settings2 className="w-4 h-4" />
+              </button>
+              <button
+                onClick={handleClearHistory}
+                className="p-2 text-gray-400 hover:text-red-500 transition-colors rounded-lg hover:bg-gray-100"
+                title="清空对话"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
           </div>
-        </div>
-      </header>
+        </header>
 
       {/* 高级检索设置面板 */}
       {showAdvancedSettings && (
@@ -323,6 +437,7 @@ export default function UserChatPage() {
           )}
         </div>
       </footer>
+      </div>
     </div>
   );
 }

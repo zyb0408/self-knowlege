@@ -150,7 +150,7 @@ router.post(
          top_k, similarity_threshold, distance_metric,
          chunk_size, chunk_overlap, chunk_strategy, max_tokens, min_chunk_size, separators, embedding_batch_size,
          system_prompt)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).run(
         id,
         name,

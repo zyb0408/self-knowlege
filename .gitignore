@@ -1,15 +1,1 @@
-```
-# TypeScript build artifacts
-tsconfig.tsbuildinfo
-
-# Dependencies
-node_modules/
-
-# Editors
-.vscode/
-
-# Environment
-.env
-.env.local
-*.env.*
-```
+Nothing should be ignored based on the provided file changes. The only modified file is a source code file (.tsx) which should not be ignored.

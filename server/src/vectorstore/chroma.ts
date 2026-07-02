@@ -11,9 +11,31 @@ export class ChromaVectorStore implements VectorStore {
   private client: ChromaClient;
   
   constructor() {
+    // ChromaDB JS SDK 默认使用 v1 API，但 ChromaDB 0.5+ 已弃用 v1 API
+    // 需要显式指定使用 v2 API 或者使用完整的 URL
+    const chromaUrl = `http://${config.chromaHost}:${config.chromaPort}`;
+    console.log(`[ChromaDB] 初始化客户端，连接地址：${chromaUrl}`);
+    
     this.client = new ChromaClient({
-      path: `http://${config.chromaHost}:${config.chromaPort}`,
+      path: chromaUrl,
     });
+  }
+
+  /**
+   * 测试 ChromaDB 连接是否正常
+   */
+  async testConnection(): Promise<boolean> {
+    try {
+      console.log('[ChromaDB] 测试连接...');
+      // 尝试获取一个测试 collection 来验证连接
+      await this.client.listCollections();
+      console.log('[ChromaDB] 连接测试成功');
+      return true;
+    } catch (error) {
+      console.error('[ChromaDB] 连接测试失败:', (error as Error).message);
+      console.error('[ChromaDB] 请确认：1. ChromaDB 容器已启动；2. 端口映射正确 (8574:8000)；3. 网络可访问');
+      return false;
+    }
   }
 
   private async getCollection(kbId: string) {
@@ -35,14 +57,55 @@ export class ChromaVectorStore implements VectorStore {
   }
 
   async addChunks(kbId: string, chunks: Chunk[]): Promise<void> {
-    if (chunks.length === 0) return;
+    if (chunks.length === 0) {
+      const warnMsg = `[ChromaDB] 尝试添加空分块列表到知识库 ${kbId}`;
+      console.warn(warnMsg);
+      throw new Error('分块列表为空，无法添加到向量数据库');
+    }
 
-    const collection = await this.getCollection(kbId);
-    const ids = chunks.map((c) => c.id);
-    const documents = chunks.map((c) => c.text);
-    const metadatas = chunks.map((c) => c.metadata);
+    try {
+      console.log(`[ChromaDB] 正在获取知识库 ${kbId} 的 collection...`);
+      const collection = await this.getCollection(kbId);
+      
+      const ids = chunks.map((c) => c.id);
+      const documents = chunks.map((c) => c.text);
+      const metadatas = chunks.map((c) => c.metadata);
 
-    await collection.add({ ids, documents, metadatas });
+      console.log(`[ChromaDB] 开始添加 ${ids.length} 个分块到知识库 ${kbId}`);
+      console.log(`[ChromaDB] 第一个分块 ID: ${ids[0]}, 文本长度：${documents[0]?.length || 0}`);
+      console.log(`[ChromaDB] 最后一个分块 ID: ${ids[ids.length - 1]}, 文本长度：${documents[ids.length - 1]?.length || 0}`);
+      
+      // 检查 documents 是否有空字符串
+      const emptyDocs = documents.filter(d => !d || d.trim().length === 0).length;
+      if (emptyDocs > 0) {
+        console.warn(`[ChromaDB] 发现 ${emptyDocs} 个空文本分块，可能导致索引问题`);
+      }
+      
+      console.log(`[ChromaDB] 调用 collection.add() 方法...`);
+      await collection.add({ 
+        ids, 
+        documents, 
+        metadatas 
+      });
+      
+      console.log(`[ChromaDB] 成功添加 ${ids.length} 个分块到知识库 ${kbId}`);
+      
+      // 验证是否真的添加成功
+      try {
+        const verifyResult = await collection.count();
+        console.log(`[ChromaDB] 验证：知识库 ${kbId} 当前总分块数：${verifyResult}`);
+      } catch (verifyErr) {
+        console.warn(`[ChromaDB] 验证分块数失败：`, (verifyErr as Error).message);
+      }
+    } catch (error) {
+      const errorMsg = (error as Error).message;
+      const errorStack = (error as Error).stack || '无堆栈信息';
+      console.error(`[ChromaDB] 添加分块失败到知识库 ${kbId}:`, errorMsg);
+      console.error(`[ChromaDB] 错误堆栈:`, errorStack);
+      console.error(`[ChromaDB] 失败详情 - 知识库 ID: ${kbId}, 尝试添加分块数：${chunks.length}`);
+      console.error(`[ChromaDB] 可能原因：1. ChromaDB 服务未启动或不可达；2. Collection 创建失败；3. 向量维度不匹配；4. 网络问题`);
+      throw new Error(`ChromaDB 添加分块失败：${errorMsg}`);
+    }
   }
 
   /**

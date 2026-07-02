@@ -176,9 +176,22 @@ router.post(
 
       // Create ChromaDB collection
       const store = new ChromaVectorStore();
-      await store.createCollection(id).catch(() => {
-        // Non-fatal
-      });
+      
+      // 测试 ChromaDB 连接
+      console.log(`[知识库创建] 正在测试 ChromaDB 连接...`);
+      const connectionOk = await store.testConnection();
+      if (!connectionOk) {
+        throw new Error('无法连接到 ChromaDB 向量数据库，请确认服务已启动且端口配置正确');
+      }
+      
+      try {
+        console.log(`[知识库创建] 正在为知识库 ${id} 创建 ChromaDB collection...`);
+        await store.createCollection(id);
+        console.log(`[知识库创建] ChromaDB collection 创建成功`);
+      } catch (chromaErr) {
+        console.error('[知识库创建] 创建 ChromaDB collection 失败:', (chromaErr as Error).message);
+        // 非致命错误，继续执行
+      }
 
       // Process uploaded files if any
       const files = req.files as Express.Multer.File[] | undefined;
@@ -250,6 +263,7 @@ router.post(
             // 使用知识库配置的批量大小，默认为 20
             const batchSize = kbConfig?.embedding_batch_size || 20;
             let totalIndexed = 0;
+            let chromaError: string | null = null;
 
             for (let batchStart = 0; batchStart < limitedChunks.length; batchStart += batchSize) {
               const batchEnd = Math.min(batchStart + batchSize, limitedChunks.length);
@@ -257,44 +271,94 @@ router.post(
 
               for (let i = batchStart; i < batchEnd; i++) {
                 try {
+                  console.log(`[索引] 正在生成第 ${i + 1}/${limitedChunks.length} 个分块的 embedding...`);
                   const embeddingResp = await llm.embed([limitedChunks[i]]);
+                  console.log(`[索引] Embedding 返回向量维度：${embeddingResp.vectors[0]?.length || 0}`);
+                  
                   if (embeddingResp.vectors[0]?.length > 0) {
                     batch.push({
                       id: `${docId}_chunk_${i}`,
                       text: limitedChunks[i],
                       metadata: { kb_id: id, filename, chunk_index: i },
                     });
+                  } else {
+                    console.warn(`[索引] 第 ${i} 个分块的 embedding 返回空向量`);
                   }
                 } catch (embedErr) {
+                  const embedErrMsg = (embedErr as Error).message;
+                  console.error(`[索引] 第 ${i} 个分块 embedding 失败：`, embedErrMsg);
                   if (!firstEmbedError) {
-                    firstEmbedError = (embedErr as Error).message;
+                    firstEmbedError = embedErrMsg;
                   }
                   // If first batch fails entirely, abort early
                   if (batchStart === 0 && i === batchStart) {
+                    console.error(`[索引] 首批次首个分块 embedding 失败，中止索引流程`);
                     break;
                   }
                 }
               }
 
               if (batch.length > 0) {
-                await store.addChunks(id, batch);
-                totalIndexed += batch.length;
+                try {
+                  console.log(`[ChromaDB] 开始向知识库 ${id} 添加批次 ${Math.floor(batchStart / batchSize) + 1}，共 ${batch.length} 个分块...`);
+                  await store.addChunks(id, batch);
+                  totalIndexed += batch.length;
+                  console.log(`[ChromaDB] 成功添加批次，累计索引 ${totalIndexed}/${limitedChunks.length} 个分块`);
+                } catch (chromaErr) {
+                  chromaError = `[ChromaDB 错误] ${(chromaErr as Error).message}`;
+                  console.error(`[ChromaDB] 添加批次失败：`, chromaError);
+                  // 记录详细错误信息以便调试
+                  console.error(`[ChromaDB] 失败详情 - 知识库 ID: ${id}, 文件名：${filename}, 批次起始：${batchStart}, 分块数量：${batch.length}`);
+                  break; // 中止后续批次
+                }
+              } else {
+                console.warn(`[索引] 批次 ${Math.floor(batchStart / batchSize) + 1} 没有有效分块可添加`);
               }
+            }
+
+            // 检查是否有 ChromaDB 错误
+            if (chromaError) {
+              db.prepare(
+                'UPDATE documents SET status = ?, error = ? WHERE id = ?',
+              ).run('error', chromaError, docId);
+              fileResults.push({
+                filename,
+                status: 'error',
+                chunk_count: totalIndexed,
+                error: chromaError,
+              });
+              continue;
             }
 
             if (totalIndexed === 0 && firstEmbedError) {
               db.prepare(
                 'UPDATE documents SET status = ?, error = ? WHERE id = ?',
-              ).run('error', `Embedding 失败: ${firstEmbedError}`, docId);
+              ).run('error', `Embedding 失败：${firstEmbedError}`, docId);
               fileResults.push({
                 filename,
                 status: 'error',
                 chunk_count: 0,
-                error: `Embedding 失败: ${firstEmbedError}`,
+                error: `Embedding 失败：${firstEmbedError}`,
               });
               continue;
             }
 
+            if (totalIndexed === 0 && !chromaError && !firstEmbedError) {
+              const noDataError = '未成功添加任何分块到向量数据库，请检查 ChromaDB 连接和 embedding 服务';
+              console.error(`[索引] ${noDataError} - 知识库：${id}, 文件：${filename}, 生成分块数：${limitedChunks.length}`);
+              db.prepare(
+                'UPDATE documents SET status = ?, error = ? WHERE id = ?',
+              ).run('error', noDataError, docId);
+              fileResults.push({
+                filename,
+                status: 'error',
+                chunk_count: 0,
+                error: noDataError,
+              });
+              continue;
+            }
+
+            console.log(`[索引] 文件 ${filename} 索引完成，总计 ${totalIndexed} 个分块`);
             db.prepare(
               'UPDATE documents SET status = ?, chunk_count = ?, indexed_at = ? WHERE id = ?',
             ).run('done', totalIndexed, Date.now(), docId);
@@ -441,12 +505,29 @@ router.post('/:id/reindex', async (req: Request, res: Response): Promise<void> =
   let store: ChromaVectorStore;
   try {
     store = new ChromaVectorStore();
-    await store.deleteCollection(kbId).catch(() => {
-      // Collection may not exist yet, ignore
+    
+    // 测试连接
+    console.log(`[重新索引] 正在测试 ChromaDB 连接...`);
+    const connectionOk = await store.testConnection();
+    if (!connectionOk) {
+      res.status(500).json({
+        error: '无法连接到 ChromaDB 向量数据库',
+        details: '请确认：1. ChromaDB 容器已启动；2. 端口映射正确 (8574:8000)；3. 网络可访问',
+      });
+      return;
+    }
+    
+    console.log(`[重新索引] 正在删除旧的 collection kb_${kbId}...`);
+    await store.deleteCollection(kbId).catch((delErr) => {
+      console.warn('[重新索引] 删除旧 collection 失败（可能不存在）:', (delErr as Error).message);
     });
+    
+    console.log(`[重新索引] 正在创建新的 collection kb_${kbId}...`);
     await store.createCollection(kbId);
+    console.log(`[重新索引] Collection 创建成功`);
   } catch (err) {
     const msg = (err as Error).message;
+    console.error('[重新索引] 初始化 ChromaDB 失败:', msg);
     res.status(500).json({
       error: '无法连接向量数据库，请确认 ChromaDB 已启动',
       details: msg,

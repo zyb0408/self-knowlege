@@ -8,7 +8,7 @@ interface RetrievalResult {
   filename: string;
   chunkIndex: number;
   score: number;
-  content: string;
+  text: string;
 }
 
 export default function RetrievalDebugger() {
@@ -165,9 +165,12 @@ export default function RetrievalDebugger() {
                       <span>
                         Chunk Index: {result.chunkIndex}
                       </span>
+                      <span>
+                        相似度：{result.score.toFixed(3)}
+                      </span>
                     </div>
                     <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-60 overflow-y-auto">
-                      {result.content}
+                      {result.text}
                     </div>
                   </div>
                 )}

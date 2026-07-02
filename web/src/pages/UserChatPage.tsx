@@ -23,8 +23,10 @@ export default function UserChatPage() {
     'selectedKnowledgeBase',
     null,
   );
+  // 按知识库 ID 隔离存储对话历史，key 格式：chat-history-{kbId}
+  // 使用 setter 以便在对话完成后保存历史记录
+  const [history, setHistory] = useLocalStorage<Message[]>(`chat-history-${selectedKbId || 'default'}`, []);
   const [isSending, setIsSending] = useState(false);
-  const [history] = useLocalStorage<Message[]>(`chat-history-${selectedKbId || 'default'}`, []);
   const controllerRef = useRef<AbortController | null>(null);
   
   // 高级检索设置状态
@@ -51,6 +53,7 @@ export default function UserChatPage() {
       setIsSending(true);
       setError(null);
 
+      // 将用户消息添加到对话上下文（用于前端显示）
       sendMessage(text);
       setStreaming(true);
 
@@ -63,10 +66,25 @@ export default function UserChatPage() {
             appendStream(chunk);
           },
           () => {
+            // 请求完成回调：保存完整对话到 localStorage
             setStreaming(false);
             setIsSending(false);
-            // Save to localStorage
-            // The history is managed via localStorage in the hook
+            
+            // 获取 AI 的完整回复内容（从当前消息列表中获取最后一条 assistant 消息）
+            const lastMessage = state.messages[state.messages.length - 1];
+            const assistantContent = lastMessage?.role === 'assistant' ? lastMessage.content : '';
+            
+            // 将用户消息和 AI 回复保存到 localStorage
+            // 这样下次查询时会作为上下文传递给后端，实现多轮对话
+            setHistory((prev) => {
+              // 限制历史记录数量，避免 localStorage 过大（保留最近 20 条对话，即 40 条消息）
+              const newHistory: Message[] = [
+                ...prev,
+                { role: 'user', content: text, timestamp: Date.now() },
+                { role: 'assistant', content: assistantContent, timestamp: Date.now() }
+              ];
+              return newHistory.slice(-40);
+            });
           },
           (error: string) => {
             setError(error);
@@ -93,10 +111,13 @@ export default function UserChatPage() {
       appendStream,
       setError,
       searchOptions,
+      setHistory,
+      state.messages,
     ],
   );
 
   const handleClearHistory = useCallback(() => {
+    // 清空当前知识库的对话历史，并重置 chat-context 中的消息状态
     const key = `chat-history-${selectedKbId || 'default'}`;
     localStorage.removeItem(key);
     window.location.reload();

@@ -1,11 +1,34 @@
-```
+```gitignore
 # Dependencies
 node_modules/
 
 # Build outputs
 dist/
 build/
-target/
+*.js.map
+*.ts.map
+
+# Environment
+.env
+.env.local
+*.env.*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+
+# Temp files
+*.tmp
+
+# Coverage
+coverage/
+htmlcov/
+.coverage
 
 # Python
 __pycache__/
@@ -13,53 +36,22 @@ __pycache__/
 *.pyo
 *.pyd
 .Python
-env/
-venv/
-.venv/
-.ENV
-.env
-.env.local
-.env.*
+*.so
+*.egg-info/
+.eggs/
 .venv/
 venv/
-ENV/
-
-# Logs
-*.log
-
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-
-# Coverage
-coverage/
-htmlcov/
-.coverage
-
-# Temporary files
-*.tmp
-*.temp
-*.bak
-
-# Environment specific
-.env.local
-.env.*
-
-# Python cache
 .mypy_cache/
 .pytest_cache/
-.hypothesis/
+
+# Node.js
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
 
 # Compressed files
 *.zip

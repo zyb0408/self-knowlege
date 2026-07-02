@@ -72,6 +72,8 @@ function initTables(): void {
       id TEXT PRIMARY KEY,
       kb_id TEXT NOT NULL,
       filename TEXT NOT NULL,
+      file_path TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
       status TEXT NOT NULL DEFAULT 'pending',
       chunk_count INTEGER NOT NULL DEFAULT 0,
       indexed_at INTEGER,
@@ -105,6 +107,17 @@ function initTables(): void {
         ALTER TABLE knowledge_bases ADD COLUMN min_chunk_size INTEGER NOT NULL DEFAULT 50;
         ALTER TABLE knowledge_bases ADD COLUMN separators TEXT NOT NULL DEFAULT '\\n\\n,\\n, 。,，,. , ';
         ALTER TABLE knowledge_bases ADD COLUMN embedding_batch_size INTEGER NOT NULL DEFAULT 20;
+      `);
+    }
+
+    // 迁移：为现有文档表添加 file_path 和 version 字段（如果不存在）
+    try {
+      db.prepare("SELECT file_path FROM documents LIMIT 1").get();
+    } catch {
+      // 字段不存在，添加新字段
+      db.exec(`
+        ALTER TABLE documents ADD COLUMN file_path TEXT;
+        ALTER TABLE documents ADD COLUMN version INTEGER NOT NULL DEFAULT 1;
       `);
     }
 

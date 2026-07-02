@@ -14,6 +14,9 @@ export const config = {
   // SQLite
   dbPath: process.env.DB_PATH || resolve(__dirname, '..', 'data', 'knolege.db'),
 
+  // Data directory for storing original files
+  dataDir: process.env.DATA_DIR || resolve(__dirname, '..', 'data'),
+
   // Global default LLM config (shared across all knowledge bases)
   defaultLlmBaseUrl: process.env.DEFAULT_LLM_BASE_URL || 'http://localhost:8000/v1',
   defaultLlmApiKey: process.env.DEFAULT_LLM_API_KEY || '',

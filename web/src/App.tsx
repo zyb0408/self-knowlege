@@ -1,18 +1,18 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AdminProvider } from '@/context/admin-context';
 import { ChatProvider } from '@/context/chat-context';
-import { useLocalStorage } from '@/hooks/use-local-storage';
 import UserChatPage from '@/pages/UserChatPage';
 import AdminLoginPage from '@/pages/AdminLoginPage';
 import AdminDashboard from '@/pages/AdminDashboard';
 import KnowledgeBaseDetailPage from '@/pages/KnowledgeBaseDetail';
 
 export default function App() {
-  const [history] = useLocalStorage<any[]>('chat-history', []);
-
+  // 注意：不再在此处加载历史，因为历史现在按知识库 ID 隔离存储在 UserChatPage 中
+  // ChatProvider 的 initialHistory 传空数组，实际历史由 UserChatPage 管理
+  
   return (
     <AdminProvider>
-      <ChatProvider initialHistory={history}>
+      <ChatProvider initialHistory={[]}>
         <BrowserRouter>
           <Routes>
             <Route path="/" element={<UserChatPage />} />

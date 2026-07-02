@@ -204,11 +204,14 @@ router.post('/stream', async (req: Request, res: Response): Promise<void> => {
       console.error('向量检索失败:', (err as Error).message);
       // 检索失败时继续对话，但不包含检索上下文
       userPrompt = message;
-      res.write(`data: ${JSON.stringify({ 
-        type: 'warning', 
-        message: `检索失败：${(err as Error).message}，将不使用知识库内容进行回答`,
-        retrievalTimeMs 
-      })}\n\n`);
+      // 【关键修复】检查响应头是否已发送，避免 "ERR_HTTP_HEADERS_SENT" 错误
+      if (!res.headersSent) {
+        res.write(`data: ${JSON.stringify({ 
+          type: 'warning', 
+          message: `检索失败：${(err as Error).message}，将不使用知识库内容进行回答`,
+          retrievalTimeMs 
+        })}\n\n`);
+      }
     }
   }
   // 如果是全局模式（未选择知识库），userPrompt 保持原始 message，直接发送给 LLM

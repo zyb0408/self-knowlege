@@ -461,12 +461,18 @@ ${candidateTexts}
       results = await this.hybridSearch(finalQuery, collection, queryEmbedding, topK * 2, options);
     } else {
       // 纯向量检索模式
-      const vectorResults = await collection.query({
+      const queryOptions: any = {
         queryEmbeddings: [queryEmbedding],
-        nResults: topK * 2, // 获取更多候选用于后续过滤和重排序
-        where: filter,
+        nResults: topK * 2,
         include: ['documents' as any, 'metadatas' as any, 'distances' as any],
-      });
+      };
+      
+      // 【关键修复】只在 filter 非空时才添加 where 子句，避免 ChromaDB v2 API 的 "Invalid where clause" 错误
+      if (filter && Object.keys(filter).length > 0) {
+        queryOptions.where = filter;
+      }
+      
+      const vectorResults = await collection.query(queryOptions);
 
       // 格式化结果
       results = ((vectorResults.documents?.[0] || []) as string[]).map((doc: string | null, idx: number) => {

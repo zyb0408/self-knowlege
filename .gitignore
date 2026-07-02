@@ -2,39 +2,56 @@
 # Dependencies
 node_modules/
 
-# Build outputs
+# Build artifacts
 dist/
 build/
 target/
 
-# Python
+# Environment variables
+.env
+.env.local
+.env.*
+
+# Python specific
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
-env/
-venv/
-.venv/
-.ENV
-.env
-.env.local
-.env.*
-.venv/
-venv/
-ENV/
+*.py.class
+*.py.backup
+*.py.swp
+*.py.swo
+*.py~backup
+*.py~swp
+*.py~swo
+*.py~.*
+*.py.*
+*.py.class
+*.py.backup
+*.py.swp
+*.py.swo
+*.py~backup
+*.py~swp
+*.py~swo
+*.py~.*
+*.py.*
+*.py.class
+*.py.backup
+*.py.swp
+*.py.swo
+*.py~backup
+*.py~swp
+*.py~swo
+*.py~.*
+*.py.*
 
 # Logs
 *.log
 
-# OS generated files
-.DS_Store
-.DS_Store?
-._*
-.Spotlight-V100
-.Trashes
-ehthumbs.db
-Thumbs.db
+# Coverage
+coverage/
+htmlcov/
+.coverage
 
 # IDE
 .vscode/
@@ -42,24 +59,15 @@ Thumbs.db
 *.swp
 *.swo
 
-# Coverage
-coverage/
-htmlcov/
-.coverage
+# OS
+.DS_Store
+Thumbs.db
 
-# Temporary files
-*.tmp
-*.temp
-*.bak
-
-# Environment specific
-.env.local
-.env.*
-
-# Python cache
+# MyPy
 .mypy_cache/
+
+# PyTest
 .pytest_cache/
-.hypothesis/
 
 # Compressed files
 *.zip

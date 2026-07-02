@@ -278,7 +278,12 @@ router.post(
             }
 
             if (batch.length > 0) {
-              await store.addChunks(kbId, batch);
+              // 传入 embedding 配置，让 ChromaVectorStore 使用正确的 embedding 服务
+              await store.addChunks(kbId, batch, {
+                baseUrl: globalSettings.embedding_base_url,
+                apiKey: globalSettings.embedding_api_key,
+                model: globalSettings.embedding_model,
+              });
               totalIndexed += batch.length;
             }
           }

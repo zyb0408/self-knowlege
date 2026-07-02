@@ -56,7 +56,7 @@ export class ChromaVectorStore implements VectorStore {
     await this.client.deleteCollection({ name: `kb_${kbId}` });
   }
 
-  async addChunks(kbId: string, chunks: Chunk[]): Promise<void> {
+  async addChunks(kbId: string, chunks: Chunk[], embeddingConfig?: { baseUrl?: string; apiKey?: string; model?: string }): Promise<void> {
     if (chunks.length === 0) {
       const warnMsg = `[ChromaDB] 尝试添加空分块列表到知识库 ${kbId}`;
       console.warn(warnMsg);
@@ -81,11 +81,37 @@ export class ChromaVectorStore implements VectorStore {
         console.warn(`[ChromaDB] 发现 ${emptyDocs} 个空文本分块，可能导致索引问题`);
       }
       
-      console.log(`[ChromaDB] 调用 collection.add() 方法...`);
+      // 【关键修复】显式生成 embeddings，避免 ChromaDB 使用默认嵌入函数（需要下载模型，容易网络失败）
+      console.log(`[ChromaDB] 开始为 ${chunks.length} 个分块生成 embeddings...`);
+      const embeddings: number[][] = [];
+      const batchSize = 20; // 批量生成，避免请求过快
+      
+      for (let i = 0; i < chunks.length; i += batchSize) {
+        const batch = chunks.slice(i, i + batchSize);
+        console.log(`[ChromaDB] 生成批次 ${Math.floor(i / batchSize) + 1}/${Math.ceil(chunks.length / batchSize)}...`);
+        
+        const batchEmbeddings = await Promise.all(
+          batch.map(async (chunk) => {
+            try {
+              return await this.generateEmbedding(chunk.text, embeddingConfig || {});
+            } catch (embedError) {
+              console.error(`[ChromaDB] 生成分块 ${chunk.id} 的 embedding 失败:`, (embedError as Error).message);
+              throw embedError;
+            }
+          })
+        );
+        
+        embeddings.push(...batchEmbeddings);
+      }
+      
+      console.log(`[ChromaDB] Embeddings 生成完成，维度：${embeddings[0]?.length || 0}`);
+      
+      console.log(`[ChromaDB] 调用 collection.add() 方法，包含显式 embeddings...`);
       await collection.add({ 
         ids, 
         documents, 
-        metadatas 
+        metadatas,
+        embeddings  // 【关键】传入显式生成的 embeddings，避免 ChromaDB 使用默认嵌入函数
       });
       
       console.log(`[ChromaDB] 成功添加 ${ids.length} 个分块到知识库 ${kbId}`);
@@ -103,7 +129,7 @@ export class ChromaVectorStore implements VectorStore {
       console.error(`[ChromaDB] 添加分块失败到知识库 ${kbId}:`, errorMsg);
       console.error(`[ChromaDB] 错误堆栈:`, errorStack);
       console.error(`[ChromaDB] 失败详情 - 知识库 ID: ${kbId}, 尝试添加分块数：${chunks.length}`);
-      console.error(`[ChromaDB] 可能原因：1. ChromaDB 服务未启动或不可达；2. Collection 创建失败；3. 向量维度不匹配；4. 网络问题`);
+      console.error(`[ChromaDB] 可能原因：1. ChromaDB 服务未启动或不可达；2. Collection 创建失败；3. 向量维度不匹配；4. 网络问题；5. Embedding 服务不可用`);
       throw new Error(`ChromaDB 添加分块失败：${errorMsg}`);
     }
   }

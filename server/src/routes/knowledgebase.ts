@@ -301,7 +301,12 @@ router.post(
               if (batch.length > 0) {
                 try {
                   console.log(`[ChromaDB] 开始向知识库 ${id} 添加批次 ${Math.floor(batchStart / batchSize) + 1}，共 ${batch.length} 个分块...`);
-                  await store.addChunks(id, batch);
+                  // 传入 embedding 配置，让 ChromaVectorStore 使用正确的 embedding 服务
+                  await store.addChunks(id, batch, {
+                    baseUrl: globalSettings.embedding_base_url,
+                    apiKey: globalSettings.embedding_api_key,
+                    model: globalSettings.embedding_model,
+                  });
                   totalIndexed += batch.length;
                   console.log(`[ChromaDB] 成功添加批次，累计索引 ${totalIndexed}/${limitedChunks.length} 个分块`);
                 } catch (chromaErr) {
